@@ -163,11 +163,11 @@ def upload():
             return jsonify({'error': 'google-generativeai not installed'}), 500
             
         try:
-            import pdfplumber
-            print("✓ pdfplumber imported")
+            import PyMuPDF as fitz
+            print("✓ PyMuPDF imported")
         except ImportError as e:
             print(f"Import error: {e}")
-            return jsonify({'error': 'pdfplumber not installed'}), 500
+            return jsonify({'error': 'PyMuPDF not installed'}), 500
             
         try:
             import pandas as pd
@@ -206,74 +206,40 @@ def upload():
         # Process PDF (simplified)
         print("Processing PDF...")
         try:
-            import pdfplumber
-            import pandas as pd
+            # Open PDF
+            doc = fitz.open(file_path)
+            total_pages = len(doc)
+            print(f"✓ PDF opened: {total_pages} pages")
             
-            # Open PDF with pdfplumber
-            with pdfplumber.open(file_path) as pdf:
-                total_pages = len(pdf.pages)
-                print(f"✓ PDF opened: {total_pages} pages")
+            # Simple table extraction
+            tables_found = 0
+            csv_files = []
+            
+            for page_num in range(min(total_pages, 5)):  # Limit to 5 pages for safety
+                page = doc[page_num]
+                tables = page.find_tables()
                 
-                # Simple table extraction using pdfplumber
-                tables_found = 0
-                csv_files = []
-                
-                for page_num in range(min(total_pages, 5)):  # Limit to 5 pages for safety
-                    page = pdf.pages[page_num]
-                    print(f"  Processing page {page_num+1}")
-                    
-                    # Extract tables from current page
+                for i, table in enumerate(tables):
                     try:
-                        tables = page.extract_tables()
-                        print(f"  Page {page_num+1}: Found {len(tables)} tables")
-                        
-                        for i, table in enumerate(tables):
-                            try:
-                                if table and len(table) > 0:
-                                    # Convert table to pandas DataFrame
-                                    df = pd.DataFrame(table)
-                                    
-                                    # Clean empty rows and columns
-                                    df = df.dropna(how='all').dropna(axis=1, how='all')
-                                    
-                                    if not df.empty and len(df) > 1:  # At least 2 rows (header + data)
-                                        csv_filename = f"table_page{page_num+1}_{i+1}.csv"
-                                        csv_path = os.path.join(temp_dir, csv_filename)
-                                        
-                                        # Use first row as header if it looks like headers
-                                        try:
-                                            # Check if first row contains text (likely headers)
-                                            first_row = df.iloc[0].astype(str)
-                                            if any(not str(cell).replace('.', '').replace(',', '').isdigit() 
-                                                  for cell in first_row if pd.notna(cell) and str(cell).strip()):
-                                                # First row has text, use as headers
-                                                df.columns = first_row
-                                                df = df.iloc[1:].reset_index(drop=True)
-                                                df.to_csv(csv_path, index=False)
-                                            else:
-                                                # No clear headers, save with generic column names
-                                                df.to_csv(csv_path, index=False, header=False)
-                                        except:
-                                            # Fallback: save without headers
-                                            df.to_csv(csv_path, index=False, header=False)
-                                        
-                                        csv_files.append(csv_path)
-                                        tables_found += 1
-                                        print(f"✓ Table {i+1} extracted from page {page_num+1}: {len(df)} rows × {len(df.columns)} columns")
-                                        
-                            except Exception as e:
-                                print(f"Table processing error on page {page_num+1}, table {i+1}: {e}")
-                                continue
-                                
+                        df = table.to_pandas()
+                        if not df.empty:
+                            csv_filename = f"table_page{page_num+1}_{i+1}.csv"
+                            csv_path = os.path.join(temp_dir, csv_filename)
+                            df.to_csv(csv_path, index=False)
+                            csv_files.append(csv_path)
+                            tables_found += 1
+                            print(f"✓ Table {i+1} extracted from page {page_num+1}")
                     except Exception as e:
-                        print(f"Error extracting tables from page {page_num+1}: {e}")
+                        print(f"Table extraction error: {e}")
                         continue
+            
+            doc.close()
             
             # Store results
             results = {
                 'pdf_name': file.filename,
                 'total_pages': total_pages,
-                'pages_with_tables': len([i for i in range(min(total_pages, 5)) if csv_files]),
+                'pages_with_tables': len([p for p in range(total_pages) if len(doc[p].find_tables()) > 0]) if total_pages <= 5 else "Unknown",
                 'total_tables_extracted': tables_found,
                 'csv_files': csv_files,
                 'temp_dir': temp_dir
@@ -281,7 +247,7 @@ def upload():
             
             results_store[extraction_id] = results
             
-            print(f"✓ Processing complete: {tables_found} tables extracted")
+            print(f"✓ Processing complete: {tables_found} tables")
             
             return jsonify({
                 'success': True,
@@ -297,8 +263,6 @@ def upload():
             
         except Exception as e:
             print(f"Processing error: {e}")
-            import traceback
-            traceback.print_exc()
             return jsonify({'error': f'PDF processing failed: {str(e)}'}), 500
         
     except Exception as e:
