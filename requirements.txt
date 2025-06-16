@@ -1,8 +1,7 @@
 Flask
+Werkzeug
 google-generativeai
-PyPDF2
+pandas
+PyMuPDF
 Pillow
 gunicorn
-pdfplumber 
-pandas
-pymupdf
