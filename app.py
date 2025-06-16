@@ -50,16 +50,20 @@ def home():
             
             <div class="features">
                 <div class="feature">
-                    <h4>🧠 AI Extraction</h4>
-                    <p>Google Gemini AI for intelligent table recognition</p>
+                    <h4>🧠 Advanced AI (model1.py)</h4>
+                    <p>Gemini 2.0 Flash with specialized financial table prompts</p>
                 </div>
                 <div class="feature">
-                    <h4>📊 Multiple Methods</h4>
-                    <p>Advanced AI with smart fallback systems</p>
+                    <h4>📊 Financial Expertise</h4>
+                    <p>Quarter/Nine Months detection, Roman numerals, deferred tax handling</p>
                 </div>
                 <div class="feature">
-                    <h4>📁 Smart Output</h4>
-                    <p>Organized CSV files with error prevention</p>
+                    <h4>🎯 Precision Extraction</h4>
+                    <p>Handles "- Deferred Tax Expenses / (Income)" patterns exactly</p>
+                </div>
+                <div class="feature">
+                    <h4>📁 Smart Organization</h4>
+                    <p>Multi-page table combination, title detection, Excel error prevention</p>
                 </div>
             </div>
             
@@ -143,14 +147,27 @@ def home():
                     const data = JSON.parse(text);
                     
                     if (data.success) {
-                        message.innerHTML = '<div class="alert alert-success"><strong>✅ Success!</strong> Tables extracted successfully</div>';
+                        message.innerHTML = '<div class="alert alert-success"><strong>✅ Success!</strong> Advanced AI extraction completed with model1.py functionality</div>';
                         
                         let resultsHTML = `
-                            <h3>📊 Extraction Results</h3>
+                            <h3>📊 Advanced Extraction Results</h3>
                             <div class="result-item"><strong>📄 File:</strong> ${data.results.pdf_name}</div>
                             <div class="result-item"><strong>📑 Pages:</strong> ${data.results.total_pages}</div>
                             <div class="result-item"><strong>📊 Tables:</strong> ${data.results.total_tables_extracted}</div>
+                            <div class="result-item"><strong>🧠 Method:</strong> ${data.results.method || 'Advanced AI'}</div>
                         `;
+                        
+                        if (data.results.pdf_title && data.results.pdf_title !== data.results.pdf_name) {
+                            resultsHTML += `<div class="result-item"><strong>📝 Detected Title:</strong> ${data.results.pdf_title}</div>`;
+                        }
+                        
+                        if (data.results.extracted_titles && data.results.extracted_titles.length > 0) {
+                            resultsHTML += '<div class="result-item"><strong>📋 Extracted Table Titles:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+                            data.results.extracted_titles.forEach(title => {
+                                resultsHTML += `<li>${title}</li>`;
+                            });
+                            resultsHTML += '</ul></div>';
+                        }
                         
                         if (data.results.csv_files && data.results.csv_files.length > 0) {
                             resultsHTML += '<h4>📁 Download Files:</h4>';
@@ -165,6 +182,16 @@ def home():
                             if (data.results.csv_files.length > 1) {
                                 resultsHTML += `<div class="result-item">
                                     <a href="/download/${data.extraction_id}" style="color: #28a745; text-decoration: none; font-weight: bold;">
+                                        📦 Download All Files (ZIP)
+                                    </a>
+                                </div>`;
+                            }
+                        }
+                        
+                        results.innerHTML = resultsHTML;
+                    } else {
+                        message.innerHTML = `<div class="alert alert-error"><strong>❌ Error:</strong> ${data.error}</div>`;
+                    }d/${data.extraction_id}" style="color: #28a745; text-decoration: none; font-weight: bold;">
                                         📦 Download All Files (ZIP)
                                     </a>
                                 </div>`;
@@ -256,7 +283,10 @@ def upload():
                     'pdf_name': results['pdf_name'],
                     'total_pages': results.get('total_pages', 1),
                     'total_tables_extracted': results.get('total_tables_extracted', 0),
-                    'csv_files': [os.path.basename(f) for f in results.get('csv_files', [])]
+                    'csv_files': [os.path.basename(f) for f in results.get('csv_files', [])],
+                    'extracted_titles': results.get('extracted_titles', []),
+                    'pdf_title': results.get('pdf_title', results['pdf_name']),
+                    'method': 'Advanced AI with model1.py functionality'
                 }
             })
             
@@ -321,7 +351,7 @@ def extract_tables(file_path, temp_dir, filename, api_key):
         return results
 
 def extract_with_ai(file_path, temp_dir, api_key):
-    """Advanced AI extraction using Gemini"""
+    """Advanced AI extraction using Gemini with model1.py functionality"""
     try:
         # Test imports
         import google.generativeai as genai
@@ -329,6 +359,8 @@ def extract_with_ai(file_path, temp_dir, api_key):
         from PIL import Image
         import pandas as pd
         import io
+        import re
+        from pathlib import Path
         
         print("✓ All AI dependencies available")
         
@@ -336,13 +368,17 @@ def extract_with_ai(file_path, temp_dir, api_key):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash-exp')
         
-        # Convert PDF to images
+        # Extract PDF title using model1.py method
+        pdf_title = extract_pdf_title(file_path)
+        print(f"📄 PDF Title detected: {pdf_title}")
+        
+        # Convert PDF to images with high resolution
         doc = fitz.open(file_path)
         images = []
         
-        for page_num in range(min(len(doc), 3)):  # Limit to 3 pages
+        for page_num in range(min(len(doc), 5)):  # Limit to 5 pages
             page = doc.load_page(page_num)
-            mat = fitz.Matrix(2.0, 2.0)  # 2x zoom
+            mat = fitz.Matrix(3.0, 3.0)  # 3x zoom = 216 DPI for better accuracy
             pix = page.get_pixmap(matrix=mat, alpha=False)
             img_data = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
@@ -353,72 +389,439 @@ def extract_with_ai(file_path, temp_dir, api_key):
             images.append(img)
         
         doc.close()
-        print(f"✓ Converted {len(images)} pages to images")
+        print(f"✓ Converted {len(images)} pages to high-resolution images")
         
-        # Extract tables with AI
+        # Extract tables with advanced AI prompt
         csv_files = []
         total_tables = 0
+        tables_by_title = {}
+        extracted_titles = []
         
         for page_num, image in enumerate(images):
             try:
-                prompt = """Extract tables from this image. Return JSON format:
-                {
-                    "has_tables": true/false,
-                    "tables": [
-                        {
-                            "title": "table title",
-                            "headers": ["col1", "col2", ...],
-                            "data": [["row1col1", "row1col2", ...], ...]
-                        }
-                    ]
-                }
-                Extract ALL text exactly as shown."""
+                # Use model1.py advanced prompt
+                prompt = create_advanced_table_extraction_prompt()
                 
-                response = model.generate_content([prompt, image])
+                generation_config = {
+                    'temperature': 0.1,
+                    'top_p': 0.8,
+                    'top_k': 40,
+                    'max_output_tokens': 8192,
+                }
+                
+                response = model.generate_content([prompt, image], generation_config=generation_config)
                 response_text = response.text.strip()
                 
-                # Clean response
+                # Clean response using model1.py method
                 if response_text.startswith('```json'):
                     response_text = response_text[7:-3].strip()
                 elif response_text.startswith('```'):
                     response_text = response_text[3:-3].strip()
+                elif response_text.startswith('json'):
+                    response_text = response_text[4:].strip()
+                
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3].strip()
                 
                 result = json.loads(response_text)
                 
                 if result.get("has_tables") and result.get("tables"):
-                    for i, table in enumerate(result["tables"]):
-                        headers = table.get('headers', [])
-                        data = table.get('data', [])
-                        title = table.get('title', f'Table_Page_{page_num+1}_{i+1}')
+                    for i, table_data in enumerate(result["tables"]):
+                        title = table_data.get('title', f'Table_Page_{page_num+1}_{i+1}')
+                        headers = table_data.get('headers', [])
+                        data = table_data.get('data', [])
                         
-                        if data:
-                            df = pd.DataFrame(data, columns=headers if headers else None)
-                            csv_filename = f"page_{page_num+1}_table_{i+1}.csv"
-                            csv_path = os.path.join(temp_dir, csv_filename)
-                            
-                            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                                if title:
-                                    csvfile.write(f'"{title}"\n\n')
-                                df.to_csv(csvfile, index=False)
-                            
-                            csv_files.append(csv_path)
-                            total_tables += 1
-                            print(f"✓ Extracted table from page {page_num+1}")
+                        if title:
+                            extracted_titles.append(title)
+                        
+                        # Normalize title for grouping (model1.py method)
+                        normalized_title = normalize_title_for_grouping(title, page_num)
+                        
+                        if normalized_title not in tables_by_title:
+                            tables_by_title[normalized_title] = {
+                                "title": title,
+                                "headers": headers,
+                                "data": data,
+                                "pages": [page_num + 1],
+                                "original_titles": [title]
+                            }
+                        else:
+                            # Combine tables across pages
+                            existing_table = tables_by_title[normalized_title]
+                            if are_headers_compatible(existing_table["headers"], headers):
+                                existing_table["data"].extend(data)
+                                existing_table["pages"].append(page_num + 1)
+                                existing_table["original_titles"].append(title)
+                                print(f"    Combined continuation data from pages: {existing_table['pages']}")
+                            else:
+                                # Create variant if headers don't match
+                                alt_title = f"{normalized_title}_v{len([k for k in tables_by_title.keys() if k.startswith(normalized_title)])+1}"
+                                tables_by_title[alt_title] = {
+                                    "title": title,
+                                    "headers": headers,
+                                    "data": data,
+                                    "pages": [page_num + 1],
+                                    "original_titles": [title]
+                                }
+                        
+                        print(f"✓ Found table on page {page_num+1}: {title}")
                 
             except Exception as e:
                 print(f"Error processing page {page_num+1}: {e}")
                 continue
         
+        # Save combined tables using model1.py method
+        for normalized_title, combined_table in tables_by_title.items():
+            try:
+                csv_path = save_combined_table_to_csv(combined_table, pdf_title, temp_dir)
+                if csv_path:
+                    csv_files.append(csv_path)
+                    total_tables += 1
+                    print(f"✓ Saved combined table: {os.path.basename(csv_path)}")
+            except Exception as e:
+                print(f"Error saving table {normalized_title}: {e}")
+        
         return {
             'total_pages': len(images),
             'total_tables_extracted': total_tables,
-            'csv_files': csv_files
+            'csv_files': csv_files,
+            'extracted_titles': extracted_titles,
+            'pdf_title': pdf_title
         }
         
     except ImportError as e:
         raise Exception(f"Missing dependency: {e}")
     except Exception as e:
         raise Exception(f"AI extraction error: {e}")
+
+def extract_pdf_title(pdf_path):
+    """Extract title from PDF metadata or first page content (from model1.py)"""
+    try:
+        import fitz
+        import re
+        
+        doc = fitz.open(pdf_path)
+        
+        # First try to get title from metadata
+        metadata = doc.metadata
+        if metadata and metadata.get('title'):
+            title = metadata['title'].strip()
+            if title and len(title) > 3:
+                doc.close()
+                return sanitize_directory_name(title)
+        
+        # If no metadata title, try to extract from first page
+        if len(doc) > 0:
+            first_page = doc[0]
+            blocks = first_page.get_text("dict")
+            
+            title_candidates = []
+            page_height = first_page.rect.height
+            
+            for block in blocks.get("blocks", []):
+                if "lines" in block:
+                    for line in block["lines"]:
+                        bbox = line["bbox"]
+                        y_pos = bbox[1]
+                        
+                        if y_pos < page_height * 0.3:
+                            for span in line.get("spans", []):
+                                text = span.get("text", "").strip()
+                                font_size = span.get("size", 0)
+                                
+                                if (text and len(text) > 10 and 
+                                    font_size >= 12 and 
+                                    not text.lower().startswith(('page', 'confidential', 'draft'))):
+                                    title_candidates.append((text, font_size, y_pos))
+            
+            title_candidates.sort(key=lambda x: (-x[1], x[2]))
+            
+            if title_candidates:
+                potential_title = title_candidates[0][0]
+                potential_title = re.sub(r'\s+', ' ', potential_title.strip())
+                potential_title = re.sub(r'^(COMPANY|CORPORATION|LIMITED|LTD|INC)[\s:]+', '', potential_title, flags=re.IGNORECASE)
+                
+                if len(potential_title) > 5:
+                    doc.close()
+                    return sanitize_directory_name(potential_title)
+        
+        doc.close()
+        
+    except Exception as e:
+        print(f"Error extracting PDF title: {e}")
+    
+    # Fallback to filename
+    from pathlib import Path
+    pdf_name = Path(pdf_path).stem
+    return sanitize_directory_name(pdf_name)
+
+def sanitize_directory_name(name):
+    """Sanitize a string to be used as a directory name (from model1.py)"""
+    import re
+    
+    sanitized = re.sub(r'[<>:"/\\|?*]', '', name)
+    sanitized = re.sub(r'\s+', ' ', sanitized)
+    sanitized = sanitized.strip(' .')
+    
+    if len(sanitized) > 100:
+        sanitized = sanitized[:100].strip()
+    
+    if not sanitized:
+        sanitized = "Untitled_PDF"
+    
+    return sanitized
+
+def create_advanced_table_extraction_prompt():
+    """Create the advanced prompt for table extraction (from model1.py)"""
+    return """
+    You are an expert PDF table extraction specialist. Analyze this image with extreme precision to extract EXACT data as it appears.
+
+    CRITICAL INSTRUCTIONS FOR ACCURACY:
+
+    STEP 1 - COMPLETE TITLE EXTRACTION:
+    - Look for the COMPLETE title including ALL subtitle information
+    - Extract titles like: "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024"
+    - ALWAYS include currency/unit information if present: "(Rs. In Lakhs)", "(Rs. In Crores)", etc.
+    - Look for text that appears prominently above the table
+    - Include any subtitle information that describes the table content
+
+    STEP 2 - CRITICAL TEXT RECOGNITION FOR SPECIFIC PATTERNS:
+    - MOST IMPORTANT: Look for text patterns that start with a dash/hyphen (-)
+    - Specifically look for: "- Deferred Tax Expenses / (Income)"
+    - This text appears as an indented sub-item under Tax Expense
+    - Extract this EXACTLY as: "- Deferred Tax Expenses / (Income)"
+    - DO NOT convert this to "#NAME?" or any error message
+    - DO NOT interpret the dash as a negative sign for numbers
+    - DO NOT remove the dash or modify the text in any way
+    - This is DESCRIPTIVE TEXT, not a formula or calculation
+
+    STEP 3 - QUARTER AND NINE MONTHS COLUMN HANDLING:
+    - Look for column headers that contain "Quarter Ended" and "Nine Months Ended"
+    - Extract these headers exactly as they appear with dates
+    - Examples of expected headers:
+      * "Quarter Ended December 31, 2024"
+      * "Nine Months Ended December 31, 2024"
+      * "Quarter Ended December 31, 2023"
+      * "Nine Months Ended December 31, 2023"
+    - Preserve the exact format: "Quarter Ended [Date]" and "Nine Months Ended [Date]"
+    - Look for additional qualifiers like "Reviewed" or "Unaudited" if present
+
+    STEP 4 - SERIAL NUMBER (Sr. No.) HANDLING:
+    - Look for "Sr. No." or "S. No." in the header
+    - Serial numbers in this table are: I, II, III, IV, V, VI, VII, VIII, IX (Roman numerals WITHOUT parentheses)
+    - Extract EXACTLY as shown:
+      * I for first row
+      * II for second row  
+      * III for third row
+      * IV for fourth row
+      * V for fifth row
+      * VI for sixth row
+      * VII for seventh row
+      * VIII for eighth row
+      * IX for ninth row
+    - Do NOT add parentheses if they're not there
+    - Do NOT convert to Arabic numbers
+
+    STEP 5 - FINANCIAL DATA HANDLING:
+    - Extract ALL numerical values exactly as shown
+    - Preserve negative values in parentheses: (135.30), (121.26), (196.58), (552.77)
+    - Keep dash symbols as "-" for zero/nil values (when used as data, not as text prefix)
+    - Maintain exact decimal precision: 13,542.40, 18,790.26, etc.
+    - Include commas in large numbers exactly as shown
+    - Do NOT interpret or modify any values
+
+    OUTPUT FORMAT:
+    {
+        "has_tables": true/false,
+        "tables": [
+            {
+                "title": "Complete table title with currency info",
+                "table_number": null,
+                "headers": ["Sr. No.", "Particulars", "Quarter Ended December 31, 2024 Reviewed", "Nine Months Ended December 31, 2024 Reviewed", "Quarter Ended December 31, 2023 Reviewed", "Nine Months Ended December 31, 2023 Reviewed"],
+                "data": [
+                    ["I", "Revenue from Operations", "2,369.75", "27,490.52", "2,148.92", "24,117.03"],
+                    ["II", "Other Income", "929.74", "1,779.25", "", ""],
+                    ["", "- Deferred Tax Expenses / (Income)", "(0.52)", "(211.11)", "", ""]
+                ]
+            }
+        ]
+    }
+
+    CRITICAL ACCURACY REQUIREMENTS:
+    1. Include complete title with currency information: "(Rs. In Lakhs)"
+    2. Extract Sr. No. as Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX
+    3. Preserve negative values in parentheses: (135.30), (121.26)
+    4. Keep dash symbols as "-" for nil values in data cells
+    5. Extract "- Deferred Tax Expenses / (Income)" EXACTLY as shown - this is descriptive text, not an error
+    6. Maintain exact financial formatting with commas
+    7. Extract all sub-item descriptions completely
+    8. Use "Quarter Ended [Date]" and "Nine Months Ended [Date]" format for column headers
+
+    MOST IMPORTANT - AVOID THESE SPECIFIC MISTAKES:
+    - Converting "- Deferred Tax Expenses / (Income)" to "#NAME?" or any error message
+    - Treating "- Deferred Tax Expenses / (Income)" as a formula or calculation
+    - Missing the complete descriptive text that starts with "-"
+    - Converting descriptive text starting with "-" to numerical values
+    - Not using the proper "Quarter Ended" and "Nine Months Ended" format in headers
+
+    Remember: Text that starts with "- " followed by words is DESCRIPTIVE TEXT that should be extracted exactly as written, never converted to error messages.
+    """
+
+def normalize_title_for_grouping(title, page_num):
+    """Normalize title for better grouping of continuation tables (from model1.py)"""
+    import re
+    
+    if not title or title.strip() == '':
+        return f"Table_Page_{page_num}"
+    
+    # Remove extra spaces and normalize
+    normalized = re.sub(r'\s+', ' ', title.strip())
+    
+    # Remove common continuation indicators
+    continuation_patterns = [
+        r'\s*\(continued\)',
+        r'\s*\(contd\)',
+        r'\s*\(cont\)',
+        r'\s*continued',
+        r'\s*contd',
+        r'\s*\-\s*continued',
+        r'\s*\-\s*contd',
+        r'page\s*\d+',
+        r'sheet\s*\d+'
+    ]
+    
+    for pattern in continuation_patterns:
+        normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+    
+    # Normalize common patterns
+    company_patterns = [
+        (r'HDFC\s+Life\s+Insurance\s+Company\s+Limited?', 'HDFC Life Insurance Company Limited'),
+        (r'LLOYDS\s+ENGINEERING\s+WORKS\s+LIMITED', 'LLOYDS ENGINEERING WORKS LIMITED'),
+        (r'UNAUDITED\s+CONSOLIDATED\s+FINANCIAL\s+RESULTS', 'UNAUDITED CONSOLIDATED FINANCIAL RESULTS'),
+        (r'for\s+the\s+Quarter\s+&\s+Nine\s+Months\s+ended', 'for the Quarter & Nine Months ended'),
+        (r'December\s+31,?\s*2024', 'December 31, 2024'),
+        (r'Rs\.?\s*in\s*Lakhs?', 'Rs. in Lakhs')
+    ]
+    
+    for pattern, replacement in company_patterns:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    
+    return normalized.strip()
+
+def are_headers_compatible(headers1, headers2):
+    """Check if two header sets are compatible for table continuation (from model1.py)"""
+    import re
+    
+    if not headers1 or not headers2:
+        return True
+    
+    # Normalize headers for comparison
+    norm_headers1 = [re.sub(r'\s+', ' ', str(h).strip().lower()) for h in headers1]
+    norm_headers2 = [re.sub(r'\s+', ' ', str(h).strip().lower()) for h in headers2]
+    
+    # Check if headers are identical
+    if norm_headers1 == norm_headers2:
+        return True
+    
+    # Check for significant overlap (70%)
+    if len(norm_headers1) > 0 and len(norm_headers2) > 0:
+        common_headers = set(norm_headers1) & set(norm_headers2)
+        overlap_ratio = len(common_headers) / max(len(norm_headers1), len(norm_headers2))
+        
+        if overlap_ratio >= 0.7:
+            return True
+    
+    # Check for financial statement patterns
+    financial_keywords = ['particulars', 'sr. no', 'march', 'december', 'audited', 'reviewed', 'quarter ended', 'nine months ended']
+    headers1_has_financial = any(keyword in ' '.join(norm_headers1) for keyword in financial_keywords)
+    headers2_has_financial = any(keyword in ' '.join(norm_headers2) for keyword in financial_keywords)
+    
+    if headers1_has_financial and headers2_has_financial:
+        return True
+    
+    return False
+
+def save_combined_table_to_csv(combined_table, pdf_name, temp_dir):
+    """Save combined table data to CSV file with advanced formatting (from model1.py)"""
+    try:
+        import pandas as pd
+        import re
+        
+        title = combined_table.get('title', '')
+        if title:
+            # Clean title for filename
+            safe_filename = re.sub(r'[<>:"/\\|?*]', '', title)
+            safe_filename = safe_filename.replace('(Rs. In Lakhs)', '').strip()
+            safe_filename = re.sub(r'\s+', ' ', safe_filename)
+            filename = f"{safe_filename}.csv"
+        else:
+            filename = f"{pdf_name}_Combined_Table.csv"
+        
+        filepath = os.path.join(temp_dir, filename)
+        
+        headers = combined_table.get('headers', [])
+        data = combined_table.get('data', [])
+        
+        if not data:
+            return None
+        
+        # Fix Excel formula issues
+        def fix_excel_formula_issues(cell_value):
+            if isinstance(cell_value, str):
+                if cell_value.startswith('-') and any(c.isalpha() for c in cell_value):
+                    return f"'{cell_value}"
+                elif cell_value.startswith(('=', '+')):
+                    return f"'{cell_value}"
+            return cell_value
+        
+        # Apply fix to all data
+        fixed_data = []
+        for row in data:
+            fixed_row = [fix_excel_formula_issues(cell) for cell in row]
+            fixed_data.append(fixed_row)
+        
+        # Handle column alignment
+        if headers and fixed_data:
+            max_data_cols = max(len(row) for row in fixed_data) if fixed_data else 0
+            
+            if len(headers) > max_data_cols:
+                headers = headers[:max_data_cols]
+            elif len(headers) < max_data_cols:
+                for i in range(len(headers), max_data_cols):
+                    headers.append(f"Column_{i+1}")
+            
+            adjusted_data = []
+            for row in fixed_data:
+                if len(row) > len(headers):
+                    adjusted_row = row[:len(headers)]
+                elif len(row) < len(headers):
+                    adjusted_row = row + [''] * (len(headers) - len(row))
+                else:
+                    adjusted_row = row
+                adjusted_data.append(adjusted_row)
+            
+            df = pd.DataFrame(adjusted_data, columns=headers)
+        else:
+            return None
+        
+        # Save with title and metadata
+        with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+            if combined_table.get('title'):
+                csvfile.write(f'"{combined_table["title"]}"\n')
+                csvfile.write('\n')
+            
+            pages = combined_table.get('pages', [])
+            if len(pages) > 1:
+                csvfile.write(f'"Combined from pages: {", ".join(map(str, pages))}"\n')
+                csvfile.write('\n')
+            
+            df.to_csv(csvfile, index=False)
+        
+        return filepath
+        
+    except Exception as e:
+        print(f"Error saving combined table: {e}")
+        return None
 
 def extract_basic(file_path, temp_dir, filename):
     """Basic PDF extraction fallback"""
