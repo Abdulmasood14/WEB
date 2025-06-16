@@ -317,6 +317,9 @@
                 <label for="api_key">🔑 Gemini API Key:</label>
                 <input type="password" id="api_key" name="api_key" required 
                        placeholder="Enter your Google Gemini API key">
+                <small style="color: #666; font-size: 0.9em;">
+                    Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>
+                </small>
             </div>
 
             <div class="form-group">
@@ -327,11 +330,18 @@
                         📁 Choose PDF file or drag & drop here
                     </label>
                 </div>
+                <small style="color: #666; font-size: 0.9em;">
+                    Maximum file size: 16MB. Supports text-based PDFs with clear table structures.
+                </small>
             </div>
 
             <button type="submit" class="submit-btn" id="submitBtn">
                 <span class="loading-spinner" id="loadingSpinner"></span>
                 <span id="btnText">🚀 Extract Tables</span>
+            </button>
+            
+            <button type="button" class="submit-btn" id="debugBtn" style="background: #6c757d; margin-top: 10px;">
+                🔧 Test API Connection
             </button>
         </form>
 
@@ -380,10 +390,47 @@
             const fileInput = document.getElementById('file');
             const fileLabel = document.getElementById('fileLabel');
             const submitBtn = document.getElementById('submitBtn');
+            const debugBtn = document.getElementById('debugBtn');
             const loadingSpinner = document.getElementById('loadingSpinner');
             const btnText = document.getElementById('btnText');
             const alertContainer = document.getElementById('alertContainer');
             const results = document.getElementById('results');
+
+            // Debug button handler
+            debugBtn.addEventListener('click', function() {
+                const apiKey = document.getElementById('api_key').value.trim();
+                
+                if (!apiKey) {
+                    showAlert('Please enter your API key first', 'error');
+                    return;
+                }
+                
+                debugBtn.disabled = true;
+                debugBtn.textContent = '🔧 Testing...';
+                
+                const formData = new FormData();
+                formData.append('api_key', apiKey);
+                
+                fetch('/debug', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.api_status === 'working') {
+                        showAlert(`✅ API Connection Successful! Model: ${data.model}`, 'success');
+                    } else {
+                        showAlert(`❌ API Error: ${data.error}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showAlert(`❌ Connection Error: ${error.message}`, 'error');
+                })
+                .finally(() => {
+                    debugBtn.disabled = false;
+                    debugBtn.textContent = '🔧 Test API Connection';
+                });
+            });
 
             // File input change handler
             fileInput.addEventListener('change', function(e) {
