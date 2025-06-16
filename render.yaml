@@ -2,12 +2,10 @@ services:
   - type: web
     name: pdf-table-extractor
     runtime: python
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    buildCommand: pip install --no-cache-dir -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     plan: free
     autoDeploy: true
     envVars:
-      - key: FLASK_ENV
-        value: production
-      - key: PYTHONPATH
-        value: /opt/render/project/src
+      - key: PYTHON_VERSION
+        value: 3.11.7
