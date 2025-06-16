@@ -138,6 +138,7 @@
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            margin-bottom: 10px;
         }
 
         .submit-btn:hover {
@@ -150,6 +151,10 @@
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
+        }
+
+        .debug-btn {
+            background: #6c757d;
         }
 
         .loading-spinner {
@@ -187,66 +192,25 @@
             border: 1px solid #c3e6cb;
         }
 
-        .results {
-            display: none;
-            background: #f8f9ff;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
+        .alert-warning {
+            background: #fff8e1;
+            color: #f57c00;
+            border: 1px solid #ffcc02;
         }
 
-        .results h3 {
-            color: #333;
-            margin-bottom: 15px;
-        }
-
-        .results-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-card {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
-        }
-
-        .stat-label {
-            color: #666;
+        .error-details {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
             font-size: 0.9em;
+            border-left: 4px solid #dc3545;
         }
 
-        .titles-list {
-            background: white;
-            border-radius: 8px;
-            padding: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
-        .titles-list h4 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .titles-list ul {
-            list-style: none;
-        }
-
-        .titles-list li {
-            padding: 5px 0;
-            border-bottom: 1px solid #eee;
-            color: #555;
+        .small-text {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
         }
 
         .features {
@@ -298,10 +262,6 @@
             .header h1 {
                 font-size: 2em;
             }
-
-            .results-stats {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
     </style>
 </head>
@@ -317,9 +277,9 @@
                 <label for="api_key">🔑 Gemini API Key:</label>
                 <input type="password" id="api_key" name="api_key" required 
                        placeholder="Enter your Google Gemini API key">
-                <small style="color: #666; font-size: 0.9em;">
+                <div class="small-text">
                     Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>
-                </small>
+                </div>
             </div>
 
             <div class="form-group">
@@ -330,9 +290,9 @@
                         📁 Choose PDF file or drag & drop here
                     </label>
                 </div>
-                <small style="color: #666; font-size: 0.9em;">
+                <div class="small-text">
                     Maximum file size: 16MB. Supports text-based PDFs with clear table structures.
-                </small>
+                </div>
             </div>
 
             <button type="submit" class="submit-btn" id="submitBtn">
@@ -340,22 +300,12 @@
                 <span id="btnText">🚀 Extract Tables</span>
             </button>
             
-            <button type="button" class="submit-btn" id="debugBtn" style="background: #6c757d; margin-top: 10px;">
+            <button type="button" class="submit-btn debug-btn" id="debugBtn">
                 🔧 Test API Connection
             </button>
         </form>
 
         <div id="alertContainer"></div>
-        
-        <div id="results" class="results">
-            <h3>📈 Extraction Results</h3>
-            <div class="results-stats" id="resultsStats">
-                <!-- Stats will be populated here -->
-            </div>
-            <div class="titles-list" id="titlesList">
-                <!-- Extracted titles will be populated here -->
-            </div>
-        </div>
 
         <div class="features">
             <h3>✨ Features</h3>
@@ -394,7 +344,18 @@
             const loadingSpinner = document.getElementById('loadingSpinner');
             const btnText = document.getElementById('btnText');
             const alertContainer = document.getElementById('alertContainer');
-            const results = document.getElementById('results');
+
+            // File input change handler
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    fileLabel.textContent = `📄 ${file.name}`;
+                    fileLabel.classList.add('has-file');
+                } else {
+                    fileLabel.textContent = '📁 Choose PDF file or drag & drop here';
+                    fileLabel.classList.remove('has-file');
+                }
+            });
 
             // Debug button handler
             debugBtn.addEventListener('click', function() {
@@ -420,7 +381,7 @@
                     if (data.api_status === 'working') {
                         showAlert(`✅ API Connection Successful! Model: ${data.model}`, 'success');
                     } else {
-                        showAlert(`❌ API Error: ${data.error}`, 'error');
+                        showAlert(`❌ API Error: ${data.error}`, 'error', data.details);
                     }
                 })
                 .catch(error => {
@@ -430,18 +391,6 @@
                     debugBtn.disabled = false;
                     debugBtn.textContent = '🔧 Test API Connection';
                 });
-            });
-
-            // File input change handler
-            fileInput.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    fileLabel.textContent = `📄 ${file.name}`;
-                    fileLabel.classList.add('has-file');
-                } else {
-                    fileLabel.textContent = '📁 Choose PDF file or drag & drop here';
-                    fileLabel.classList.remove('has-file');
-                }
             });
 
             // Form submit handler
@@ -455,9 +404,8 @@
                 loadingSpinner.style.display = 'inline-block';
                 btnText.textContent = 'Processing...';
                 
-                // Clear previous alerts and results
+                // Clear previous alerts
                 alertContainer.innerHTML = '';
-                results.style.display = 'none';
 
                 fetch('/upload', {
                     method: 'POST',
@@ -477,7 +425,7 @@
                             window.URL.revokeObjectURL(url);
                             document.body.removeChild(a);
                             
-                            showAlert('Tables extracted successfully! Download started.', 'success');
+                            showAlert('✅ Tables extracted successfully! Download started.', 'success');
                         });
                     } else {
                         return response.json();
@@ -485,14 +433,25 @@
                 })
                 .then(data => {
                     if (data && data.error) {
-                        showAlert(data.error, 'error');
-                    } else if (data && data.success === false) {
-                        showAlert(data.error || 'No tables found in the PDF.', 'error');
+                        let errorMsg = data.error;
+                        let details = '';
+                        
+                        if (data.step) {
+                            details += `Failed at step: ${data.step}`;
+                        }
+                        if (data.suggestions) {
+                            details += '\n\nSuggestions:\n' + data.suggestions.join('\n• ');
+                        }
+                        if (data.debug_info) {
+                            details += '\n\nDebug info: ' + JSON.stringify(data.debug_info, null, 2);
+                        }
+                        
+                        showAlert(errorMsg, 'error', details);
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    showAlert('An error occurred while processing the file.', 'error');
+                    showAlert('Network error occurred while processing the file.', 'error');
                 })
                 .finally(() => {
                     // Reset loading state
@@ -502,57 +461,26 @@
                 });
             });
 
-            function showAlert(message, type) {
+            function showAlert(message, type, details = '') {
                 const alertDiv = document.createElement('div');
                 alertDiv.className = `alert alert-${type}`;
-                alertDiv.textContent = message;
-                alertContainer.appendChild(alertDiv);
+                alertDiv.innerHTML = message;
                 
-                // Auto-remove after 5 seconds
-                setTimeout(() => {
-                    alertDiv.remove();
-                }, 5000);
-            }
-
-            function showResults(data) {
-                const statsContainer = document.getElementById('resultsStats');
-                const titlesContainer = document.getElementById('titlesList');
-                
-                // Populate stats
-                statsContainer.innerHTML = `
-                    <div class="stat-card">
-                        <div class="stat-number">${data.total_pages}</div>
-                        <div class="stat-label">Total Pages</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">${data.pages_with_tables}</div>
-                        <div class="stat-label">Pages with Tables</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">${data.total_tables_extracted}</div>
-                        <div class="stat-label">Tables Extracted</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-number">${data.csv_files_count}</div>
-                        <div class="stat-label">CSV Files</div>
-                    </div>
-                `;
-                
-                // Populate extracted titles
-                if (data.extracted_titles && data.extracted_titles.length > 0) {
-                    const titlesList = data.extracted_titles.map((title, index) => 
-                        `<li>${index + 1}. ${title}</li>`
-                    ).join('');
-                    
-                    titlesContainer.innerHTML = `
-                        <h4>📝 Extracted Titles:</h4>
-                        <ul>${titlesList}</ul>
-                    `;
-                } else {
-                    titlesContainer.innerHTML = '<p>No titles extracted</p>';
+                if (details) {
+                    const detailsDiv = document.createElement('div');
+                    detailsDiv.className = 'error-details';
+                    detailsDiv.innerHTML = `<strong>Details:</strong><br><pre>${details}</pre>`;
+                    alertDiv.appendChild(detailsDiv);
                 }
                 
-                results.style.display = 'block';
+                alertContainer.appendChild(alertDiv);
+                
+                // Auto-remove after 10 seconds for success, keep errors
+                if (type === 'success') {
+                    setTimeout(() => {
+                        alertDiv.remove();
+                    }, 10000);
+                }
             }
 
             // Drag and drop functionality
