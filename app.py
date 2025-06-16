@@ -3,16 +3,26 @@ import io
 import json
 import zipfile
 import logging
-from flask import Flask, render_template, request, jsonify, send_file, flash
+import traceback
+from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from pathlib import Path
 import tempfile
 import shutil
-from model1 import PDFTableExtractor
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+try:
+    from model1 import PDFTableExtractor
+    logger.info("Successfully imported PDFTableExtractor")
+except ImportError as e:
+    logger.error(f"Failed to import PDFTableExtractor: {e}")
+    raise
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
@@ -37,6 +47,9 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    filepath = None
+    temp_dir = None
+    
     try:
         logger.info("=== Starting PDF upload and processing ===")
         
@@ -62,61 +75,95 @@ def upload_file():
             return jsonify({'error': 'Please provide your Gemini API key'}), 400
         
         # Log API key format (first and last 4 chars only for security)
-        logger.info(f"API key format: {api_key[:4]}...{api_key[-4:]}")
+        if len(api_key) >= 8:
+            logger.info(f"API key format: {api_key[:4]}...{api_key[-4:]}")
+        else:
+            logger.info("API key provided (too short to show format)")
         
         # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
         
-        logger.info(f"File saved: {filepath}, Size: {os.path.getsize(filepath)} bytes")
+        try:
+            file.save(filepath)
+            file_size = os.path.getsize(filepath)
+            logger.info(f"File saved: {filepath}, Size: {file_size} bytes")
+        except Exception as e:
+            logger.error(f"Failed to save uploaded file: {e}")
+            return jsonify({'error': f'Failed to save uploaded file: {str(e)}'}), 500
+        
+        # Validate file is actually a PDF
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(4)
+                if header != b'%PDF':
+                    logger.error("File is not a valid PDF")
+                    os.remove(filepath)
+                    return jsonify({'error': 'File is not a valid PDF'}), 400
+        except Exception as e:
+            logger.error(f"Error validating PDF: {e}")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'error': 'Error validating PDF file'}), 400
         
         # Create temporary directory for this processing session
-        with tempfile.TemporaryDirectory() as temp_dir:
-            logger.info(f"Created temp directory: {temp_dir}")
+        temp_dir = tempfile.mkdtemp()
+        logger.info(f"Created temp directory: {temp_dir}")
+        
+        try:
+            # Initialize extractor with temporary directory
+            logger.info("Initializing PDFTableExtractor...")
+            extractor = PDFTableExtractor(api_key)
             
-            try:
-                # Initialize extractor with temporary directory
-                logger.info("Initializing PDFTableExtractor...")
-                extractor = PDFTableExtractor(api_key)
-                
-                # Override the base output directory to use temp directory
-                extractor.base_output_dir = Path(temp_dir)
-                extractor.base_output_dir.mkdir(exist_ok=True)
-                
-                logger.info("Starting PDF processing...")
-                
-                # Process PDF with detailed logging
-                results = extractor.process_pdf(filepath)
-                
-                logger.info(f"Processing complete. Results: {json.dumps(results, indent=2, default=str)}")
-                
-            except Exception as api_error:
-                logger.error(f"API/Processing error: {str(api_error)}")
-                logger.error(f"Error type: {type(api_error).__name__}")
-                
-                # Clean up uploaded file
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                
-                # Check for specific API errors
-                if "api key" in str(api_error).lower():
-                    return jsonify({'error': 'Invalid Gemini API key. Please check your API key and try again.'}), 401
-                elif "quota" in str(api_error).lower() or "rate limit" in str(api_error).lower():
-                    return jsonify({'error': 'API quota exceeded or rate limited. Please try again later.'}), 429
-                elif "permission" in str(api_error).lower():
-                    return jsonify({'error': 'API permission denied. Please check your Gemini API key permissions.'}), 403
-                else:
-                    return jsonify({'error': f'Processing error: {str(api_error)}'}), 500
+            # Override the base output directory to use temp directory
+            extractor.base_output_dir = Path(temp_dir)
+            extractor.base_output_dir.mkdir(exist_ok=True)
+            
+            logger.info("Starting PDF processing...")
+            
+            # Process PDF with detailed logging
+            results = extractor.process_pdf(filepath)
+            
+            logger.info(f"Processing complete. Results summary:")
+            logger.info(f"  - Total pages: {results.get('total_pages', 0)}")
+            logger.info(f"  - Pages with tables: {results.get('pages_with_tables', 0)}")
+            logger.info(f"  - Tables extracted: {results.get('total_tables_extracted', 0)}")
+            logger.info(f"  - CSV files: {len(results.get('csv_files', []))}")
+            
+        except Exception as api_error:
+            logger.error(f"API/Processing error: {str(api_error)}")
+            logger.error(f"Error type: {type(api_error).__name__}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            
+            # Clean up
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            # Check for specific API errors
+            error_msg = str(api_error).lower()
+            if "api key" in error_msg or "invalid" in error_msg:
+                return jsonify({'error': 'Invalid Gemini API key. Please check your API key and try again.'}), 401
+            elif "quota" in error_msg or "rate limit" in error_msg:
+                return jsonify({'error': 'API quota exceeded or rate limited. Please try again later.'}), 429
+            elif "permission" in error_msg:
+                return jsonify({'error': 'API permission denied. Please check your Gemini API key permissions.'}), 403
+            elif "not found" in error_msg:
+                return jsonify({'error': 'PDF file not found or corrupted.'}), 400
+            else:
+                return jsonify({'error': f'Processing error: {str(api_error)}'}), 500
         
         # Clean up uploaded file
         if os.path.exists(filepath):
             os.remove(filepath)
             logger.info("Cleaned up uploaded file")
         
-        # Check for errors
+        # Check for processing errors
         if "error" in results:
             logger.error(f"Processing error: {results['error']}")
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             return jsonify({'error': results['error']}), 500
         
         # Generate summary report
@@ -130,6 +177,10 @@ def upload_file():
         # Check if any tables were found
         if not results.get('csv_files') or len(results['csv_files']) == 0:
             logger.warning("No tables found in PDF")
+            
+            # Clean up temp directory
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             
             # Provide detailed feedback
             feedback = {
@@ -170,21 +221,18 @@ def upload_file():
                 files_added += 1
                 logger.info(f"Added summary to zip: {os.path.basename(summary_path)}")
         
+        # Clean up temp directory
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.info("Cleaned up temp directory")
+        
         zip_buffer.seek(0)
         
         logger.info(f"Created zip file with {files_added} files")
         
-        # Prepare response data
-        response_data = {
-            'success': True,
-            'pdf_name': results['pdf_name'],
-            'total_pages': results['total_pages'],
-            'pages_with_tables': results['pages_with_tables'],
-            'total_tables_extracted': results['total_tables_extracted'],
-            'csv_files_count': len(results['csv_files']),
-            'extracted_titles': results.get('extracted_titles', []),
-            'has_results': len(results['csv_files']) > 0
-        }
+        # Prepare download filename
+        pdf_name = results.get('pdf_name', 'extracted_tables')
+        download_filename = f"{pdf_name}_extracted_tables.zip"
         
         logger.info("Sending successful response with zip file")
         
@@ -193,19 +241,31 @@ def upload_file():
             io.BytesIO(zip_buffer.read()),
             mimetype='application/zip',
             as_attachment=True,
-            download_name=f"{results['pdf_name']}_extracted_tables.zip"
+            download_name=download_filename
         )
                 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         
         # Clean up uploaded file if it exists
-        if 'filepath' in locals() and os.path.exists(filepath):
-            os.remove(filepath)
-            logger.info("Cleaned up uploaded file after error")
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+                logger.info("Cleaned up uploaded file after error")
+            except:
+                pass
         
-        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+        # Clean up temp directory if it exists
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.info("Cleaned up temp directory after error")
+            except:
+                pass
+        
+        return jsonify({'error': f'An unexpected error occurred while processing the file. Please try again.'}), 500
 
 @app.route('/debug', methods=['POST'])
 def debug_extraction():
@@ -214,6 +274,8 @@ def debug_extraction():
         api_key = request.form.get('api_key', '').strip()
         if not api_key:
             return jsonify({'error': 'API key required for debug'}), 400
+        
+        logger.info("Testing API connection...")
         
         # Test API key with a simple request
         import google.generativeai as genai
@@ -225,6 +287,8 @@ def debug_extraction():
             # Simple test
             response = model.generate_content("Hello, can you respond with 'API Working'?")
             
+            logger.info("API test successful")
+            
             return jsonify({
                 'api_status': 'working',
                 'response': response.text,
@@ -232,19 +296,98 @@ def debug_extraction():
             })
             
         except Exception as api_error:
+            logger.error(f"API test failed: {api_error}")
+            
+            error_msg = str(api_error).lower()
+            if "api key" in error_msg or "invalid" in error_msg:
+                status_msg = "Invalid API key"
+            elif "quota" in error_msg or "rate limit" in error_msg:
+                status_msg = "Quota exceeded or rate limited"
+            elif "permission" in error_msg:
+                status_msg = "Permission denied"
+            else:
+                status_msg = "API connection failed"
+            
             return jsonify({
                 'api_status': 'error',
-                'error': str(api_error),
-                'error_type': type(api_error).__name__
+                'error': status_msg,
+                'error_type': type(api_error).__name__,
+                'details': str(api_error)
             }), 400
     
     except Exception as e:
+        logger.error(f"Debug endpoint error: {e}")
         return jsonify({'error': f'Debug error: {str(e)}'}), 500
 
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy'})
+    """Health check endpoint"""
+    try:
+        # Basic health checks
+        health_status = {
+            'status': 'healthy',
+            'upload_folder_exists': os.path.exists(UPLOAD_FOLDER),
+            'upload_folder_writable': os.access(UPLOAD_FOLDER, os.W_OK),
+            'dependencies': {}
+        }
+        
+        # Check dependencies
+        try:
+            import google.generativeai
+            health_status['dependencies']['google-generativeai'] = 'available'
+        except ImportError:
+            health_status['dependencies']['google-generativeai'] = 'missing'
+        
+        try:
+            import pandas
+            health_status['dependencies']['pandas'] = 'available'
+        except ImportError:
+            health_status['dependencies']['pandas'] = 'missing'
+        
+        try:
+            import fitz
+            health_status['dependencies']['PyMuPDF'] = 'available'
+        except ImportError:
+            health_status['dependencies']['PyMuPDF'] = 'missing'
+        
+        # Check if model1 can be imported
+        try:
+            from model1 import PDFTableExtractor
+            health_status['pdf_extractor'] = 'available'
+        except ImportError as e:
+            health_status['pdf_extractor'] = f'error: {str(e)}'
+        
+        return jsonify(health_status)
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
+
+@app.errorhandler(413)
+def too_large(e):
+    """Handle file too large error"""
+    return jsonify({'error': 'File too large. Maximum size is 16MB.'}), 413
+
+@app.errorhandler(404)
+def not_found(e):
+    """Handle 404 errors"""
+    return jsonify({'error': 'Endpoint not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Handle 500 errors"""
+    logger.error(f"Internal server error: {e}")
+    return jsonify({'error': 'Internal server error. Please try again.'}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
+    
+    logger.info(f"Starting Flask app on port {port}")
+    logger.info(f"Debug mode: {debug_mode}")
+    logger.info(f"Upload folder: {UPLOAD_FOLDER}")
+    logger.info(f"Max file size: {MAX_CONTENT_LENGTH / (1024*1024)}MB")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
