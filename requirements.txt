@@ -4,3 +4,4 @@ PyPDF2
 Pillow
 gunicorn
 pdfplumber 
+pandas
