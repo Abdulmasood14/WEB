@@ -1,3 +1,22 @@
-"scripts": {
-  "start": "node app.js"
+{
+  "name": "advanced-pdf-table-extractor",
+  "version": "1.0.0",
+  "description": "Advanced PDF Table Extractor with Google Gemini 2.0 Flash AI",
+  "main": "app.py",
+  "scripts": {
+    "start": "gunicorn app:app"
+  },
+  "engines": {
+    "python": "3.9.x"
+  },
+  "keywords": [
+    "pdf",
+    "table",
+    "extraction",
+    "ai",
+    "gemini",
+    "flask"
+  ],
+  "author": "Advanced PDF Extractor",
+  "license": "MIT"
 }
