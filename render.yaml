@@ -1,13 +1,12 @@
 services:
   - type: web
     name: pdf-table-extractor
-    runtime: python
-    buildCommand: pip install --no-cache-dir -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app --timeout 300
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     plan: free
-    autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.7
-      - key: PIP_NO_CACHE_DIR
-        value: "1"
+      - key: PORT
+        value: 10000
+      - key: SECRET_KEY
+        generateValue: true
