@@ -18,6 +18,90 @@ app = Flask(__name__)
 # Simple in-memory storage
 results_store = {}
 
+def basic_pdf_extraction(file_path, temp_dir, filename):
+    """Basic PDF table extraction fallback"""
+    try:
+        import pandas as pd
+        
+        results = {
+            'total_tables_extracted': 0,
+            'csv_files': [],
+            'extracted_titles': []
+        }
+        
+        # Try pdfplumber first
+        try:
+            import pdfplumber
+            print("Using pdfplumber for basic extraction...")
+            
+            with pdfplumber.open(file_path) as pdf:
+                for page_num, page in enumerate(pdf.pages[:5]):  # Limit to 5 pages
+                    tables = page.extract_tables()
+                    
+                    for table_num, table in enumerate(tables):
+                        if table and len(table) > 1:  # Has headers and data
+                            try:
+                                # Convert to DataFrame
+                                df = pd.DataFrame(table[1:], columns=table[0])
+                                
+                                # Clean empty rows/columns
+                                df = df.dropna(how='all').dropna(axis=1, how='all')
+                                
+                                if not df.empty:
+                                    csv_filename = f"table_page{page_num+1}_{table_num+1}.csv"
+                                    csv_path = os.path.join(temp_dir, csv_filename)
+                                    df.to_csv(csv_path, index=False)
+                                    results['csv_files'].append(csv_path)
+                                    results['total_tables_extracted'] += 1
+                                    print(f"✓ Extracted table from page {page_num+1}")
+                                    
+                            except Exception as e:
+                                print(f"Error processing table: {e}")
+                                continue
+        except ImportError:
+            print("pdfplumber not available, trying PyPDF2...")
+            
+            # Fallback to PyPDF2 (basic text extraction)
+            try:
+                import PyPDF2
+                
+                with open(file_path, 'rb') as file:
+                    reader = PyPDF2.PdfReader(file)
+                    
+                    all_text = ""
+                    for page in reader.pages[:3]:  # First 3 pages
+                        all_text += page.extract_text() + "\n"
+                    
+                    if all_text.strip():
+                        # Create a simple text file
+                        txt_path = os.path.join(temp_dir, f"{filename}_extracted_text.txt")
+                        with open(txt_path, 'w', encoding='utf-8') as f:
+                            f.write(f"Extracted text from {filename}\n")
+                            f.write("=" * 50 + "\n\n")
+                            f.write(all_text)
+                        
+                        results['csv_files'].append(txt_path)
+                        results['total_tables_extracted'] = 1
+                        results['extracted_titles'].append(f"Text content from {filename}")
+                        print("✓ Extracted text content as fallback")
+                        
+            except Exception as e:
+                print(f"PyPDF2 extraction failed: {e}")
+                
+                # Last resort - create empty result
+                results['total_tables_extracted'] = 0
+                results['extracted_titles'].append("No tables could be extracted")
+        
+        return results
+        
+    except Exception as e:
+        print(f"Basic extraction error: {e}")
+        return {
+            'total_tables_extracted': 0,
+            'csv_files': [],
+            'extracted_titles': [f"Extraction failed: {str(e)}"]
+        }
+
 def install_package_safely(package_name):
     """Safely install a package with error handling"""
     try:
@@ -296,7 +380,25 @@ def home():
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'message': 'Advanced PDF Table Extractor running'})
+    """Health check endpoint"""
+    try:
+        # Test basic functionality
+        import pandas as pd
+        import tempfile
+        
+        return jsonify({
+            'status': 'ok', 
+            'message': 'Advanced PDF Table Extractor running',
+            'pandas': 'available',
+            'tempfile': 'available',
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Health check failed: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -306,7 +408,8 @@ def upload():
         
         # Check request
         if not request.files or 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
+            print("No file in request")
+            return jsonify({'success': False, 'error': 'No file provided'})
             
         file = request.files['file']
         api_key = request.form.get('api_key', '').strip()
@@ -316,13 +419,25 @@ def upload():
         
         # Validate inputs
         if not file or not file.filename:
-            return jsonify({'error': 'No file selected'}), 400
+            print("No file selected")
+            return jsonify({'success': False, 'error': 'No file selected'})
             
         if not api_key:
-            return jsonify({'error': 'Google AI API key is required for advanced extraction'}), 400
+            print("No API key provided")
+            return jsonify({'success': False, 'error': 'Google AI API key is required'})
             
         if not file.filename.lower().endswith('.pdf'):
-            return jsonify({'error': 'Must be PDF file'}), 400
+            print("Invalid file type")
+            return jsonify({'success': False, 'error': 'Must be PDF file'})
+        
+        # Test basic imports first
+        print("Testing imports...")
+        try:
+            import pandas as pd
+            print("✓ pandas imported")
+        except Exception as e:
+            print(f"pandas import error: {e}")
+            return jsonify({'success': False, 'error': 'pandas import failed'})
         
         # Save file
         extraction_id = str(uuid.uuid4())
@@ -334,44 +449,82 @@ def upload():
             file_size = os.path.getsize(file_path)
             print(f"✓ File saved: {file_size} bytes")
         except Exception as e:
-            return jsonify({'error': f'File save failed: {str(e)}'}), 500
+            print(f"File save error: {e}")
+            return jsonify({'success': False, 'error': f'File save failed: {str(e)}'})
         
-        # Initialize advanced AI extractor
+        # Try simple fallback extraction first
+        print("Attempting simple extraction...")
         try:
-            extractor = PDFTableExtractor(api_key, temp_dir)
-            print("✓ Advanced AI extractor initialized")
-        except Exception as e:
-            return jsonify({'error': f'AI initialization failed: {str(e)}'}), 500
-        
-        # Extract tables using advanced AI
-        extraction_result = extractor.process_pdf(file_path)
-        
-        # Generate summary report
-        summary_report = extractor.generate_summary_report(extraction_result)
-        
-        # Store results
-        results_store[extraction_id] = extraction_result
-        
-        return jsonify({
-            'success': True,
-            'extraction_id': extraction_id,
-            'results': {
+            # Simple table extraction using basic methods
+            results = {
                 'pdf_name': file.filename,
-                'total_pages': extraction_result['total_pages'],
-                'method': 'Google Gemini 2.0 Flash with PyMuPDF',
-                'total_tables_extracted': extraction_result['total_tables_extracted'],
-                'csv_files': [os.path.basename(f) for f in extraction_result['csv_files']],
-                'extracted_titles': extraction_result.get('extracted_titles', []),
-                'output_directory': extraction_result.get('output_directory', ''),
-                'summary_report': os.path.basename(summary_report) if summary_report else None
+                'total_pages': 1,
+                'total_tables_extracted': 0,
+                'csv_files': [],
+                'extracted_titles': [],
+                'output_directory': temp_dir
             }
-        })
+            
+            # Try to use advanced extractor
+            try:
+                print("Initializing advanced extractor...")
+                extractor = PDFTableExtractor(api_key, temp_dir)
+                print("✓ Advanced AI extractor initialized")
+                
+                # Extract tables using advanced AI
+                print("Processing PDF with AI...")
+                extraction_result = extractor.process_pdf(file_path)
+                print("✓ PDF processed")
+                
+                # Generate summary report
+                try:
+                    summary_report = extractor.generate_summary_report(extraction_result)
+                    print("✓ Summary report generated")
+                except Exception as e:
+                    print(f"Summary report error: {e}")
+                    summary_report = None
+                
+                results = extraction_result
+                
+            except Exception as e:
+                print(f"Advanced extraction failed: {e}")
+                # Fall back to basic extraction
+                try:
+                    print("Falling back to basic extraction...")
+                    basic_results = basic_pdf_extraction(file_path, temp_dir, file.filename)
+                    results.update(basic_results)
+                    print(f"✓ Basic extraction completed: {results['total_tables_extracted']} tables")
+                except Exception as e2:
+                    print(f"Basic extraction also failed: {e2}")
+                    results['error'] = f"Both advanced and basic extraction failed: {str(e)}"
+            
+            # Store results
+            results_store[extraction_id] = results
+            
+            return jsonify({
+                'success': True,
+                'extraction_id': extraction_id,
+                'results': {
+                    'pdf_name': results['pdf_name'],
+                    'total_pages': results.get('total_pages', 1),
+                    'method': 'Advanced AI with fallback',
+                    'total_tables_extracted': results.get('total_tables_extracted', 0),
+                    'csv_files': [os.path.basename(f) for f in results.get('csv_files', [])],
+                    'extracted_titles': results.get('extracted_titles', []),
+                    'output_directory': results.get('output_directory', temp_dir),
+                    'summary_report': None
+                }
+            })
+            
+        except Exception as e:
+            print(f"Extraction error: {e}")
+            return jsonify({'success': False, 'error': f'Extraction failed: {str(e)}'})
         
     except Exception as e:
         print(f"General error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'})
 
 class PDFTableExtractor:
     """Advanced AI-powered PDF table extractor using Gemini 2.0 Flash with complete functionality"""
@@ -397,9 +550,9 @@ class PDFTableExtractor:
     def setup_dependencies(self):
         """Install required dependencies dynamically"""
         packages = [
-            'google-generativeai==0.3.2',
-            'PyMuPDF==1.23.8',
-            'Pillow==9.5.0'
+            'google-generativeai',
+            'PyMuPDF', 
+            'Pillow'
         ]
         
         for package in packages:
@@ -407,12 +560,15 @@ class PDFTableExtractor:
                 # Try to import first
                 if 'google-generativeai' in package:
                     import google.generativeai
+                    print(f"✓ google-generativeai already available")
                 elif 'PyMuPDF' in package:
                     import fitz
+                    print(f"✓ PyMuPDF already available")
                 elif 'Pillow' in package:
                     from PIL import Image
-                print(f"✓ {package.split('==')[0]} already available")
+                    print(f"✓ Pillow already available")
             except ImportError:
+                print(f"Installing {package}...")
                 install_package_safely(package)
     
     def extract_pdf_title(self, pdf_path: str) -> str:
@@ -771,90 +927,74 @@ class PDFTableExtractor:
     
     def process_pdf(self, pdf_path: str) -> Dict:
         """Process entire PDF and extract all tables with advanced AI"""
-        pdf_path = Path(pdf_path)
-        if not pdf_path.exists():
-            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
-        
-        self.setup_output_directory(str(pdf_path))
-        
-        pdf_name = pdf_path.stem
-        print(f"Processing PDF with advanced AI: {pdf_name}")
-        
-        # Convert PDF to images
-        images = self.pdf_to_images(str(pdf_path))
-        if not images:
-            return {
-                "error": "Failed to convert PDF to images",
+        try:
+            pdf_path = Path(pdf_path)
+            if not pdf_path.exists():
+                raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+            
+            self.setup_output_directory(str(pdf_path))
+            
+            pdf_name = pdf_path.stem
+            print(f"Processing PDF with advanced AI: {pdf_name}")
+            
+            # Convert PDF to images
+            images = self.pdf_to_images(str(pdf_path))
+            if not images:
+                print("Failed to convert PDF to images")
+                return {
+                    "error": "Failed to convert PDF to images",
+                    "pdf_name": pdf_name,
+                    "total_pages": 0,
+                    "pages_with_tables": 0,
+                    "total_tables_extracted": 0,
+                    "csv_files": [],
+                    "page_results": [],
+                    "extracted_titles": []
+                }
+            
+            results = {
                 "pdf_name": pdf_name,
-                "total_pages": 0,
+                "output_directory": str(self.output_dir),
+                "total_pages": len(images),
                 "pages_with_tables": 0,
                 "total_tables_extracted": 0,
                 "csv_files": [],
                 "page_results": [],
                 "extracted_titles": []
             }
-        
-        results = {
-            "pdf_name": pdf_name,
-            "output_directory": str(self.output_dir),
-            "total_pages": len(images),
-            "pages_with_tables": 0,
-            "total_tables_extracted": 0,
-            "csv_files": [],
-            "page_results": [],
-            "extracted_titles": []
-        }
-        
-        tables_by_title = {}
-        
-        # Process each page with AI
-        for page_num, image in enumerate(images, 1):
-            print(f"\nProcessing page {page_num}/{len(images)} with Gemini AI...")
             
-            try:
-                extraction_result = self.extract_tables_from_image(image)
+            tables_by_title = {}
+            
+            # Process each page with AI (limit to 3 pages for safety)
+            max_pages = min(len(images), 3)
+            for page_num, image in enumerate(images[:max_pages], 1):
+                print(f"\nProcessing page {page_num}/{max_pages} with Gemini AI...")
                 
-                page_result = {
-                    "page_number": page_num,
-                    "has_tables": extraction_result.get("has_tables", False),
-                    "tables_count": len(extraction_result.get("tables", [])),
-                    "tables": []
-                }
-                
-                if extraction_result.get("has_tables", False):
-                    results["pages_with_tables"] += 1
-                    tables = extraction_result.get("tables", [])
+                try:
+                    extraction_result = self.extract_tables_from_image(image)
                     
-                    for table_num, table_data in enumerate(tables, 1):
-                        title = table_data.get('title', 'Untitled Table')
-                        print(f"  Found table: {title}")
+                    page_result = {
+                        "page_number": page_num,
+                        "has_tables": extraction_result.get("has_tables", False),
+                        "tables_count": len(extraction_result.get("tables", [])),
+                        "tables": []
+                    }
+                    
+                    if extraction_result.get("has_tables", False):
+                        results["pages_with_tables"] += 1
+                        tables = extraction_result.get("tables", [])
                         
-                        if table_data.get('title'):
-                            results["extracted_titles"].append(table_data.get('title'))
-                        
-                        normalized_title = self.normalize_title_for_grouping(title, page_num)
-                        
-                        if normalized_title not in tables_by_title:
-                            tables_by_title[normalized_title] = {
-                                "title": title,
-                                "headers": table_data.get('headers', []),
-                                "data": table_data.get('data', []),
-                                "pages": [page_num],
-                                "table_numbers": [table_num],
-                                "original_titles": [title]
-                            }
-                        else:
-                            existing_table = tables_by_title[normalized_title]
+                        for table_num, table_data in enumerate(tables, 1):
+                            title = table_data.get('title', 'Untitled Table')
+                            print(f"  Found table: {title}")
                             
-                            if self.are_headers_compatible(existing_table["headers"], table_data.get('headers', [])):
-                                existing_table["data"].extend(table_data.get('data', []))
-                                existing_table["pages"].append(page_num)
-                                existing_table["table_numbers"].append(table_num)
-                                existing_table["original_titles"].append(title)
-                                print(f"    Combined continuation data from pages: {existing_table['pages']}")
-                            else:
-                                alt_normalized_title = f"{normalized_title}_v{len([k for k in tables_by_title.keys() if k.startswith(normalized_title)])+1}"
-                                tables_by_title[alt_normalized_title] = {
+                            if table_data.get('title'):
+                                results["extracted_titles"].append(table_data.get('title'))
+                            
+                            normalized_title = self.normalize_title_for_grouping(title, page_num)
+                            
+                            if normalized_title not in tables_by_title:
+                                tables_by_title[normalized_title] = {
                                     "title": title,
                                     "headers": table_data.get('headers', []),
                                     "data": table_data.get('data', []),
@@ -862,44 +1002,79 @@ class PDFTableExtractor:
                                     "table_numbers": [table_num],
                                     "original_titles": [title]
                                 }
-                        
-                        page_result["tables"].append({
-                            "title": table_data.get("title"),
-                            "table_number": table_data.get("table_number"),
-                            "normalized_title": normalized_title,
-                            "rows": len(table_data.get("data", [])),
-                            "columns": len(table_data.get("headers", []))
-                        })
-                else:
-                    print(f"  No tables found on page {page_num}")
-                
-                results["page_results"].append(page_result)
-                
-            except Exception as e:
-                print(f"  Error processing page {page_num}: {e}")
-                page_result = {
-                    "page_number": page_num,
-                    "has_tables": False,
-                    "tables_count": 0,
-                    "tables": [],
-                    "error": str(e)
-                }
-                results["page_results"].append(page_result)
-        
-        # Save combined tables
-        print(f"\nCombining and saving tables...")
-        for normalized_title, combined_table in tables_by_title.items():
-            print(f"\nSaving advanced table: {normalized_title}")
-            print(f"  Pages: {combined_table['pages']}")
-            print(f"  Total rows: {len(combined_table['data'])}")
+                            else:
+                                existing_table = tables_by_title[normalized_title]
+                                
+                                if self.are_headers_compatible(existing_table["headers"], table_data.get('headers', [])):
+                                    existing_table["data"].extend(table_data.get('data', []))
+                                    existing_table["pages"].append(page_num)
+                                    existing_table["table_numbers"].append(table_num)
+                                    existing_table["original_titles"].append(title)
+                                    print(f"    Combined continuation data from pages: {existing_table['pages']}")
+                                else:
+                                    alt_normalized_title = f"{normalized_title}_v{len([k for k in tables_by_title.keys() if k.startswith(normalized_title)])+1}"
+                                    tables_by_title[alt_normalized_title] = {
+                                        "title": title,
+                                        "headers": table_data.get('headers', []),
+                                        "data": table_data.get('data', []),
+                                        "pages": [page_num],
+                                        "table_numbers": [table_num],
+                                        "original_titles": [title]
+                                    }
+                            
+                            page_result["tables"].append({
+                                "title": table_data.get("title"),
+                                "table_number": table_data.get("table_number"),
+                                "normalized_title": normalized_title,
+                                "rows": len(table_data.get("data", [])),
+                                "columns": len(table_data.get("headers", []))
+                            })
+                    else:
+                        print(f"  No tables found on page {page_num}")
+                    
+                    results["page_results"].append(page_result)
+                    
+                except Exception as e:
+                    print(f"  Error processing page {page_num}: {e}")
+                    page_result = {
+                        "page_number": page_num,
+                        "has_tables": False,
+                        "tables_count": 0,
+                        "tables": [],
+                        "error": str(e)
+                    }
+                    results["page_results"].append(page_result)
             
-            csv_path = self.save_combined_table_to_csv(combined_table, pdf_name)
+            # Save combined tables
+            print(f"\nCombining and saving tables...")
+            for normalized_title, combined_table in tables_by_title.items():
+                print(f"\nSaving advanced table: {normalized_title}")
+                print(f"  Pages: {combined_table['pages']}")
+                print(f"  Total rows: {len(combined_table['data'])}")
+                
+                try:
+                    csv_path = self.save_combined_table_to_csv(combined_table, pdf_name)
+                    
+                    if csv_path:
+                        results["csv_files"].append(csv_path)
+                        results["total_tables_extracted"] += 1
+                except Exception as e:
+                    print(f"Error saving table: {e}")
             
-            if csv_path:
-                results["csv_files"].append(csv_path)
-                results["total_tables_extracted"] += 1
-        
-        return results
+            return results
+            
+        except Exception as e:
+            print(f"Process PDF error: {e}")
+            return {
+                "error": str(e),
+                "pdf_name": "unknown",
+                "total_pages": 0,
+                "pages_with_tables": 0,
+                "total_tables_extracted": 0,
+                "csv_files": [],
+                "page_results": [],
+                "extracted_titles": []
+            }
     
     def generate_summary_report(self, results: Dict) -> str:
         """Generate a comprehensive summary report"""
