@@ -11,6 +11,10 @@ import fitz  # PyMuPDF
 import platform
 import subprocess
 import sys
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Optional imports for different PDF processing methods
 try:
@@ -18,7 +22,7 @@ try:
     PDF2IMAGE_AVAILABLE = True
 except ImportError:
     PDF2IMAGE_AVAILABLE = False
-    print("pdf2image not available. Using PyMuPDF instead.")
+    logger.info("pdf2image not available. Using PyMuPDF instead.")
 
 try:
     import PyPDF2
@@ -35,10 +39,28 @@ class PDFTableExtractor:
             api_key (str): Your Google AI API key
         """
         self.api_key = api_key
-        genai.configure(api_key=api_key)
+        logger.info("Configuring Gemini API...")
         
-        # Initialize Gemini 2.0 Flash model
-        self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        try:
+            genai.configure(api_key=api_key)
+            
+            # Test API key by listing models
+            available_models = []
+            try:
+                for model in genai.list_models():
+                    if 'generateContent' in model.supported_generation_methods:
+                        available_models.append(model.name)
+                logger.info(f"Available models: {available_models}")
+            except Exception as e:
+                logger.warning(f"Could not list models: {e}")
+            
+            # Initialize Gemini 2.0 Flash model
+            self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            logger.info("Successfully initialized Gemini 2.0 Flash model")
+            
+        except Exception as e:
+            logger.error(f"Failed to configure Gemini API: {e}")
+            raise Exception(f"Gemini API configuration failed: {e}")
         
         # Base output directory - will be set per PDF
         self.base_output_dir = Path("extracted_tables")
@@ -59,6 +81,7 @@ class PDFTableExtractor:
             str: Extracted title or fallback name
         """
         try:
+            logger.info(f"Extracting title from PDF: {pdf_path}")
             doc = fitz.open(pdf_path)
             
             # First try to get title from metadata
@@ -67,6 +90,7 @@ class PDFTableExtractor:
                 title = metadata['title'].strip()
                 if title and len(title) > 3:  # Valid title
                     doc.close()
+                    logger.info(f"Found title in metadata: {title}")
                     return self.sanitize_directory_name(title)
             
             # If no metadata title, try to extract from first page
@@ -113,15 +137,17 @@ class PDFTableExtractor:
                     
                     if len(potential_title) > 5:  # Valid title length
                         doc.close()
+                        logger.info(f"Extracted title from first page: {potential_title}")
                         return self.sanitize_directory_name(potential_title)
             
             doc.close()
             
         except Exception as e:
-            print(f"Error extracting PDF title: {e}")
+            logger.error(f"Error extracting PDF title: {e}")
         
         # Fallback to filename
         pdf_name = Path(pdf_path).stem
+        logger.info(f"Using filename as title: {pdf_name}")
         return self.sanitize_directory_name(pdf_name)
     
     def sanitize_directory_name(self, name: str) -> str:
@@ -172,33 +198,33 @@ class PDFTableExtractor:
         self.output_dir = self.base_output_dir / dir_name
         self.output_dir.mkdir(exist_ok=True)
         
-        print(f"📁 Created output directory: {self.output_dir}")
-        print(f"📄 PDF Title detected: {pdf_title}")
+        logger.info(f"📁 Created output directory: {self.output_dir}")
+        logger.info(f"📄 PDF Title detected: {pdf_title}")
     
     def check_dependencies(self):
         """Check and report available PDF processing methods"""
-        print("Checking PDF processing dependencies...")
+        logger.info("Checking PDF processing dependencies...")
         
         methods = []
         if PDF2IMAGE_AVAILABLE:
             if self.check_poppler():
                 methods.append("pdf2image + poppler")
-                print("✓ pdf2image with poppler available")
+                logger.info("✓ pdf2image with poppler available")
             else:
-                print("✗ pdf2image available but poppler not found")
+                logger.info("✗ pdf2image available but poppler not found")
         
         try:
             import fitz
             methods.append("PyMuPDF")
-            print("✓ PyMuPDF available")
+            logger.info("✓ PyMuPDF available")
         except ImportError:
-            print("✗ PyMuPDF not available")
+            logger.info("✗ PyMuPDF not available")
         
         if not methods:
-            print("⚠️  No PDF processing methods available. Installing PyMuPDF...")
+            logger.warning("⚠️  No PDF processing methods available. Installing PyMuPDF...")
             self.install_pymupdf()
         
-        print(f"Available methods: {', '.join(methods)}")
+        logger.info(f"Available methods: {', '.join(methods)}")
     
     def check_poppler(self) -> bool:
         """Check if poppler is installed and accessible"""
@@ -215,11 +241,11 @@ class PDFTableExtractor:
         """Install PyMuPDF if not available"""
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "PyMuPDF"])
-            print("✓ PyMuPDF installed successfully")
+            logger.info("✓ PyMuPDF installed successfully")
             global fitz
             import fitz
         except Exception as e:
-            print(f"Failed to install PyMuPDF: {e}")
+            logger.error(f"Failed to install PyMuPDF: {e}")
             raise Exception("No PDF processing library available. Please install either PyMuPDF or pdf2image with poppler.")
     
     def pdf_to_images_pymupdf(self, pdf_path: str) -> List[any]:
@@ -233,11 +259,15 @@ class PDFTableExtractor:
             List of PIL Image objects
         """
         try:
+            logger.info(f"Converting PDF to images using PyMuPDF: {pdf_path}")
             from PIL import Image
             doc = fitz.open(pdf_path)
             images = []
             
+            logger.info(f"PDF has {len(doc)} pages")
+            
             for page_num in range(len(doc)):
+                logger.info(f"Processing page {page_num + 1}/{len(doc)}")
                 page = doc.load_page(page_num)
                 # Convert to image with higher DPI for better text recognition
                 mat = fitz.Matrix(3.0, 3.0)  # 3x zoom = 216 DPI for better accuracy
@@ -249,13 +279,15 @@ class PDFTableExtractor:
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 
+                logger.info(f"Page {page_num + 1} converted to image: {img.size}")
                 images.append(img)
             
             doc.close()
+            logger.info(f"Successfully converted {len(images)} pages to images")
             return images
             
         except Exception as e:
-            print(f"Error converting PDF to images with PyMuPDF: {e}")
+            logger.error(f"Error converting PDF to images with PyMuPDF: {e}")
             return []
     
     def pdf_to_images_pdf2image(self, pdf_path: str) -> List[any]:
@@ -272,10 +304,12 @@ class PDFTableExtractor:
             if not PDF2IMAGE_AVAILABLE:
                 raise Exception("pdf2image not available")
             
+            logger.info(f"Converting PDF to images using pdf2image: {pdf_path}")
             images = convert_from_path(pdf_path, dpi=200)
+            logger.info(f"Successfully converted {len(images)} pages using pdf2image")
             return images
         except Exception as e:
-            print(f"Error converting PDF to images with pdf2image: {e}")
+            logger.error(f"Error converting PDF to images with pdf2image: {e}")
             return []
     
     def pdf_to_images(self, pdf_path: str) -> List[any]:
@@ -293,7 +327,7 @@ class PDFTableExtractor:
             import fitz
             images = self.pdf_to_images_pymupdf(pdf_path)
             if images:
-                print(f"✓ Converted {len(images)} pages using PyMuPDF")
+                logger.info(f"✓ Converted {len(images)} pages using PyMuPDF")
                 return images
         except ImportError:
             pass
@@ -302,10 +336,10 @@ class PDFTableExtractor:
         if PDF2IMAGE_AVAILABLE and self.check_poppler():
             images = self.pdf_to_images_pdf2image(pdf_path)
             if images:
-                print(f"✓ Converted {len(images)} pages using pdf2image")
+                logger.info(f"✓ Converted {len(images)} pages using pdf2image")
                 return images
         
-        print("❌ Failed to convert PDF to images. Please install PyMuPDF or pdf2image with poppler.")
+        logger.error("❌ Failed to convert PDF to images. Please install PyMuPDF or pdf2image with poppler.")
         return []
     
     def encode_image(self, image) -> str:
@@ -426,7 +460,7 @@ class PDFTableExtractor:
 
         OUTPUT FORMAT - CRITICAL EXAMPLE FOR QUARTER/NINE MONTHS:
         {
-            "has_tables": true/false,
+            "has_tables": true,
             "tables": [
                 {
                     "title": "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024 (Rs. In Lakhs)",
@@ -483,6 +517,13 @@ class PDFTableExtractor:
         - "Nine Months Ended [Date]" format for nine-month columns
 
         Remember: Text that starts with "- " followed by words is DESCRIPTIVE TEXT that should be extracted exactly as written, never converted to error messages. Column headers should use the exact "Quarter Ended" and "Nine Months Ended" format.
+
+        IMPORTANT: If you see ANY table-like structure in the image, even if it's not perfect, extract it. Look for:
+        - Any grid-like arrangement of text
+        - Headers followed by data rows
+        - Columns of numbers or text
+        - Financial statements or reports
+        - Even partial tables should be extracted
         """
         return prompt
     
@@ -497,6 +538,7 @@ class PDFTableExtractor:
             Dictionary containing extraction results
         """
         try:
+            logger.info("Starting table extraction from image...")
             prompt = self.create_table_extraction_prompt()
             
             # Generate content using Gemini 2.0 Flash with enhanced parameters
@@ -507,13 +549,24 @@ class PDFTableExtractor:
                 'max_output_tokens': 8192,  # Increased for larger tables
             }
             
+            logger.info("Sending request to Gemini API...")
+            
             response = self.model.generate_content(
                 [prompt, image],
                 generation_config=generation_config
             )
             
+            if not response or not response.text:
+                logger.error("Empty response from Gemini API")
+                return {"has_tables": False, "tables": []}
+            
+            logger.info(f"Received response from Gemini API. Response length: {len(response.text)}")
+            
             # Parse the JSON response with better error handling
             response_text = response.text.strip()
+            
+            # Log first 500 characters of response for debugging
+            logger.info(f"Raw response (first 500 chars): {response_text[:500]}")
             
             # Multiple cleaning attempts for robust parsing
             if response_text.startswith('```json'):
@@ -529,26 +582,32 @@ class PDFTableExtractor:
             
             try:
                 result = json.loads(response_text)
+                logger.info(f"Successfully parsed JSON response")
                 
                 # Validate the result structure
                 if not isinstance(result, dict):
-                    print(f"Invalid response format: not a dictionary")
+                    logger.error(f"Invalid response format: not a dictionary")
                     return {"has_tables": False, "tables": []}
                 
                 if "has_tables" not in result:
-                    print(f"Missing 'has_tables' key in response")
+                    logger.error(f"Missing 'has_tables' key in response")
                     return {"has_tables": False, "tables": []}
                 
                 if result.get("has_tables") and "tables" not in result:
-                    print(f"Missing 'tables' key when has_tables is true")
+                    logger.error(f"Missing 'tables' key when has_tables is true")
                     return {"has_tables": False, "tables": []}
+                
+                # Log table detection results
+                has_tables = result.get("has_tables", False)
+                table_count = len(result.get("tables", []))
+                logger.info(f"Table detection result: has_tables={has_tables}, table_count={table_count}")
                 
                 # Validate each table structure
                 if result.get("has_tables") and result.get("tables"):
                     valid_tables = []
                     for i, table in enumerate(result["tables"]):
                         if not isinstance(table, dict):
-                            print(f"Table {i+1}: Invalid table format")
+                            logger.warning(f"Table {i+1}: Invalid table format")
                             continue
                         
                         # Ensure required keys exist
@@ -559,15 +618,19 @@ class PDFTableExtractor:
                         if "title" not in table:
                             table["title"] = None
                         
+                        # Log table details
+                        logger.info(f"Table {i+1}: title='{table.get('title', 'No title')}', headers={len(table.get('headers', []))}, data_rows={len(table.get('data', []))}")
+                        
                         valid_tables.append(table)
                     
                     result["tables"] = valid_tables
+                    logger.info(f"Validated {len(valid_tables)} tables")
                 
                 return result
                 
             except json.JSONDecodeError as e:
-                print(f"JSON parsing error: {e}")
-                print(f"Raw response (first 500 chars): {response_text[:500]}")
+                logger.error(f"JSON parsing error: {e}")
+                logger.error(f"Raw response (first 1000 chars): {response_text[:1000]}")
                 
                 # Attempt to fix common JSON issues
                 try:
@@ -577,15 +640,17 @@ class PDFTableExtractor:
                     
                     # Try parsing again
                     result = json.loads(response_text)
+                    logger.info("Successfully recovered from JSON error")
                     return result
                 except:
-                    print(f"Failed to recover from JSON error")
+                    logger.error(f"Failed to recover from JSON error")
                     return {"has_tables": False, "tables": []}
                 
         except Exception as e:
-            print(f"Error extracting tables from image: {e}")
+            logger.error(f"Error extracting tables from image: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
             import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return {"has_tables": False, "tables": []}
     
     def save_table_to_csv(self, table_data: Dict, page_num: int, table_num: int, pdf_name: str) -> str:
@@ -623,7 +688,7 @@ class PDFTableExtractor:
             data = table_data.get('data', [])
             
             if not data:
-                print(f"No data found in table: {table_data.get('title', 'Unknown')}")
+                logger.warning(f"No data found in table: {table_data.get('title', 'Unknown')}")
                 return None
             
             # Fix data to prevent Excel #NAME? errors
@@ -653,12 +718,12 @@ class PDFTableExtractor:
                 if len(headers) > max_data_cols:
                     # Too many headers - truncate headers
                     headers = headers[:max_data_cols]
-                    print(f"  Adjusted headers: reduced from {len(table_data.get('headers', []))} to {len(headers)} columns")
+                    logger.info(f"  Adjusted headers: reduced from {len(table_data.get('headers', []))} to {len(headers)} columns")
                 elif len(headers) < max_data_cols:
                     # Too few headers - add generic column names
                     for i in range(len(headers), max_data_cols):
                         headers.append(f"Column_{i+1}")
-                    print(f"  Adjusted headers: expanded from {len(table_data.get('headers', []))} to {len(headers)} columns")
+                    logger.info(f"  Adjusted headers: expanded from {len(table_data.get('headers', []))} to {len(headers)} columns")
                 
                 # Ensure all data rows have the same number of columns as headers
                 adjusted_data = []
@@ -690,9 +755,9 @@ class PDFTableExtractor:
                     adjusted_data.append(adjusted_row)
                 
                 df = pd.DataFrame(adjusted_data)
-                print(f"  No headers provided - created table with {len(df.columns)} columns")
+                logger.info(f"  No headers provided - created table with {len(df.columns)} columns")
             else:
-                print(f"No valid data found in table: {table_data.get('title', 'Unknown')}")
+                logger.warning(f"No valid data found in table: {table_data.get('title', 'Unknown')}")
                 return None
             
             # Save to CSV with title at the top
@@ -702,23 +767,22 @@ class PDFTableExtractor:
                 if title:
                     csvfile.write(f'"{title}"\n')
                     csvfile.write('\n')  # Empty line after title
-                    print(f"  Added title: {title}")
+                    logger.info(f"  Added title: {title}")
                 
                 # Write the DataFrame to CSV
                 df.to_csv(csvfile, index=False)
             
-            print(f"✓ Saved table: {filepath}")
-            print(f"  Final table size: {len(df)} rows × {len(df.columns)} columns")
-            print(f"  Fixed Excel formula interpretation issues")
+            logger.info(f"✓ Saved table: {filepath}")
+            logger.info(f"  Final table size: {len(df)} rows × {len(df.columns)} columns")
             
             return str(filepath)
             
         except Exception as e:
-            print(f"Error saving table to CSV: {e}")
-            print(f"  Headers count: {len(table_data.get('headers', []))}")
-            print(f"  Data rows: {len(table_data.get('data', []))}")
+            logger.error(f"Error saving table to CSV: {e}")
+            logger.error(f"  Headers count: {len(table_data.get('headers', []))}")
+            logger.error(f"  Data rows: {len(table_data.get('data', []))}")
             if table_data.get('data'):
-                print(f"  Max columns in data: {max(len(row) for row in table_data.get('data', []))}")
+                logger.error(f"  Max columns in data: {max(len(row) for row in table_data.get('data', []))}")
             return None
     
     def process_pdf(self, pdf_path: str) -> Dict:
@@ -731,6 +795,8 @@ class PDFTableExtractor:
         Returns:
             Dictionary with processing results
         """
+        logger.info(f"=== Starting PDF processing: {pdf_path} ===")
+        
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
@@ -739,11 +805,12 @@ class PDFTableExtractor:
         self.setup_output_directory(str(pdf_path))
         
         pdf_name = pdf_path.stem
-        print(f"Processing PDF: {pdf_name}")
+        logger.info(f"Processing PDF: {pdf_name}")
         
         # Convert PDF to images
         images = self.pdf_to_images(str(pdf_path))
         if not images:
+            logger.error("Failed to convert PDF to images")
             return {
                 "error": "Failed to convert PDF to images",
                 "pdf_name": pdf_name,
@@ -770,7 +837,7 @@ class PDFTableExtractor:
         
         # Process each page
         for page_num, image in enumerate(images, 1):
-            print(f"\nProcessing page {page_num}/{len(images)}...")
+            logger.info(f"\n=== Processing page {page_num}/{len(images)} ===")
             
             try:
                 # Extract tables from current page
@@ -787,9 +854,11 @@ class PDFTableExtractor:
                     results["pages_with_tables"] += 1
                     tables = extraction_result.get("tables", [])
                     
+                    logger.info(f"Found {len(tables)} table(s) on page {page_num}")
+                    
                     for table_num, table_data in enumerate(tables, 1):
                         title = table_data.get('title', 'Untitled Table')
-                        print(f"  Found table: {title}")
+                        logger.info(f"  Table {table_num}: {title}")
                         
                         # Track extracted titles
                         if table_data.get('title'):
@@ -808,7 +877,7 @@ class PDFTableExtractor:
                                 "table_numbers": [table_num],
                                 "original_titles": [title]
                             }
-                            print(f"    Created new table group: {normalized_title}")
+                            logger.info(f"    Created new table group: {normalized_title}")
                         else:
                             # Combine data from continuation pages
                             existing_table = tables_by_title[normalized_title]
@@ -819,8 +888,8 @@ class PDFTableExtractor:
                                 existing_table["pages"].append(page_num)
                                 existing_table["table_numbers"].append(table_num)
                                 existing_table["original_titles"].append(title)
-                                print(f"    Added continuation data to existing table: {normalized_title}")
-                                print(f"    Combined data from pages: {existing_table['pages']}")
+                                logger.info(f"    Added continuation data to existing table: {normalized_title}")
+                                logger.info(f"    Combined data from pages: {existing_table['pages']}")
                             else:
                                 # Different table structure, create new entry
                                 alt_normalized_title = f"{normalized_title}_v{len([k for k in tables_by_title.keys() if k.startswith(normalized_title)])+1}"
@@ -832,7 +901,7 @@ class PDFTableExtractor:
                                     "table_numbers": [table_num],
                                     "original_titles": [title]
                                 }
-                                print(f"    Created variant table group: {alt_normalized_title}")
+                                logger.info(f"    Created variant table group: {alt_normalized_title}")
                         
                         page_result["tables"].append({
                             "title": table_data.get("title"),
@@ -842,12 +911,12 @@ class PDFTableExtractor:
                             "columns": len(table_data.get("headers", []))
                         })
                 else:
-                    print(f"  No tables found on page {page_num}")
+                    logger.info(f"  No tables found on page {page_num}")
                 
                 results["page_results"].append(page_result)
                 
             except Exception as e:
-                print(f"  Error processing page {page_num}: {e}")
+                logger.error(f"  Error processing page {page_num}: {e}")
                 page_result = {
                     "page_number": page_num,
                     "has_tables": False,
@@ -858,12 +927,11 @@ class PDFTableExtractor:
                 results["page_results"].append(page_result)
         
         # Now save the combined tables
-        print(f"\nCombining and saving tables...")
+        logger.info(f"\n=== Combining and saving tables ===")
         for normalized_title, combined_table in tables_by_title.items():
-            print(f"\nSaving combined table: {normalized_title}")
-            print(f"  Pages: {combined_table['pages']}")
-            print(f"  Total rows: {len(combined_table['data'])}")
-            print(f"  Original titles: {combined_table['original_titles']}")
+            logger.info(f"\nSaving combined table: {normalized_title}")
+            logger.info(f"  Pages: {combined_table['pages']}")
+            logger.info(f"  Total rows: {len(combined_table['data'])}")
             
             # Save the combined table
             csv_path = self.save_combined_table_to_csv(combined_table, pdf_name)
@@ -871,6 +939,10 @@ class PDFTableExtractor:
             if csv_path:
                 results["csv_files"].append(csv_path)
                 results["total_tables_extracted"] += 1
+        
+        logger.info(f"\n=== PDF processing complete ===")
+        logger.info(f"Total tables extracted: {results['total_tables_extracted']}")
+        logger.info(f"CSV files created: {len(results['csv_files'])}")
         
         return results
     
@@ -1014,7 +1086,7 @@ class PDFTableExtractor:
             data = combined_table.get('data', [])
             
             if not data:
-                print(f"No data found in combined table: {title}")
+                logger.warning(f"No data found in combined table: {title}")
                 return None
             
             # Fix data to prevent Excel #NAME? errors
@@ -1044,12 +1116,12 @@ class PDFTableExtractor:
                 if len(headers) > max_data_cols:
                     # Too many headers - truncate headers
                     headers = headers[:max_data_cols]
-                    print(f"  Adjusted headers: reduced from original to {len(headers)} columns")
+                    logger.info(f"  Adjusted headers: reduced from original to {len(headers)} columns")
                 elif len(headers) < max_data_cols:
                     # Too few headers - add generic column names
                     for i in range(len(headers), max_data_cols):
                         headers.append(f"Column_{i+1}")
-                    print(f"  Adjusted headers: expanded to {len(headers)} columns")
+                    logger.info(f"  Adjusted headers: expanded to {len(headers)} columns")
                 
                 # Ensure all data rows have the same number of columns as headers
                 adjusted_data = []
@@ -1081,9 +1153,9 @@ class PDFTableExtractor:
                     adjusted_data.append(adjusted_row)
                 
                 df = pd.DataFrame(adjusted_data)
-                print(f"  No headers provided - created table with {len(df.columns)} columns")
+                logger.info(f"  No headers provided - created table with {len(df.columns)} columns")
             else:
-                print(f"No valid data found in combined table: {title}")
+                logger.warning(f"No valid data found in combined table: {title}")
                 return None
             
             # Save to CSV with title at the top
@@ -1093,26 +1165,25 @@ class PDFTableExtractor:
                 if title:
                     csvfile.write(f'"{title}"\n')
                     csvfile.write('\n')  # Empty line after title
-                    print(f"  Added title: {title}")
+                    logger.info(f"  Added title: {title}")
                 
                 # Add note about combined pages
                 pages = combined_table.get('pages', [])
                 if len(pages) > 1:
                     csvfile.write(f'"Combined from pages: {", ".join(map(str, pages))}"\n')
                     csvfile.write('\n')  # Empty line after note
-                    print(f"  Added page info: Combined from pages {pages}")
+                    logger.info(f"  Added page info: Combined from pages {pages}")
                 
                 # Write the DataFrame to CSV
                 df.to_csv(csvfile, index=False)
             
-            print(f"✓ Saved combined table: {filepath}")
-            print(f"  Final combined table size: {len(df)} rows × {len(df.columns)} columns")
-            print(f"  Fixed Excel formula interpretation issues")
+            logger.info(f"✓ Saved combined table: {filepath}")
+            logger.info(f"  Final combined table size: {len(df)} rows × {len(df.columns)} columns")
             
             return str(filepath)
             
         except Exception as e:
-            print(f"Error saving combined table to CSV: {e}")
+            logger.error(f"Error saving combined table to CSV: {e}")
             return None
     
     def generate_summary_report(self, results: Dict) -> str:
@@ -1162,13 +1233,14 @@ class PDFTableExtractor:
         
         return str(report_path)
 
+
 def main():
     """
     Main function to demonstrate usage
     """
     # Configuration
-    API_KEY = "AIzaSyDbn9qGvPvghz9LOh_wapW6H5JOtzkTyCc"  # Replace with your actual API key
-    PDF_PATH = r"D:\ModelFace\88a05f16-fd86-4c46-b0aa-f2391ec4ab2f.pdf"  # Replace with path to your PDF
+    API_KEY = "YOUR_API_KEY_HERE"  # Replace with your actual API key
+    PDF_PATH = "path/to/your/pdf/file.pdf"  # Replace with path to your PDF
     
     try:
         # Initialize extractor
