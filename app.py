@@ -239,6 +239,7 @@ def upload():
         
         # Validate request
         if not request.files or 'file' not in request.files:
+            print("No file in request")
             return jsonify({'success': False, 'error': 'No file provided'})
             
         file = request.files['file']
@@ -249,15 +250,18 @@ def upload():
         
         # Validate inputs
         if not file or not file.filename:
+            print("No file selected")
             return jsonify({'success': False, 'error': 'No file selected'})
             
         if not api_key:
+            print("No API key provided")
             return jsonify({'success': False, 'error': 'Google AI API key required'})
             
         if not file.filename.lower().endswith('.pdf'):
+            print("Invalid file type")
             return jsonify({'success': False, 'error': 'Must be PDF file'})
         
-        # Save file
+        # Save file safely
         extraction_id = str(uuid.uuid4())
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, f"upload_{extraction_id}.pdf")
@@ -267,14 +271,18 @@ def upload():
             file_size = os.path.getsize(file_path)
             print(f"✓ File saved: {file_size} bytes")
         except Exception as e:
+            print(f"File save error: {e}")
             return jsonify({'success': False, 'error': f'File save failed: {str(e)}'})
         
-        # Try extraction
+        # Try extraction with multiple fallbacks
         try:
-            results = extract_tables(file_path, temp_dir, file.filename, api_key)
+            print("Starting extraction process...")
+            results = extract_tables_safe(file_path, temp_dir, file.filename, api_key)
             
             # Store results
             results_store[extraction_id] = results
+            
+            print(f"✓ Extraction completed: {results.get('total_tables_extracted', 0)} tables")
             
             return jsonify({
                 'success': True,
@@ -286,7 +294,7 @@ def upload():
                     'csv_files': [os.path.basename(f) for f in results.get('csv_files', [])],
                     'extracted_titles': results.get('extracted_titles', []),
                     'pdf_title': results.get('pdf_title', results['pdf_name']),
-                    'method': 'Advanced AI with model1.py functionality'
+                    'method': results.get('method', 'Basic extraction')
                 }
             })
             
@@ -300,57 +308,480 @@ def upload():
         traceback.print_exc()
         return jsonify({'success': False, 'error': f'Server error: {str(e)}'})
 
-def extract_tables(file_path, temp_dir, filename, api_key):
-    """Extract tables using multiple methods"""
-    print("Starting table extraction...")
+def extract_tables_safe(file_path, temp_dir, filename, api_key):
+    """Safe extraction with multiple fallback methods"""
+    print("Starting safe table extraction...")
     
     results = {
         'pdf_name': filename,
         'total_pages': 1,
         'total_tables_extracted': 0,
-        'csv_files': []
+        'csv_files': [],
+        'extracted_titles': [],
+        'pdf_title': filename,
+        'method': 'Unknown'
     }
     
-    # Method 1: Try advanced AI extraction
+    # Method 1: Try advanced AI if dependencies are available
     try:
-        print("Trying advanced AI extraction...")
-        ai_results = extract_with_ai(file_path, temp_dir, api_key)
-        if ai_results['total_tables_extracted'] > 0:
+        print("Checking for AI dependencies...")
+        import google.generativeai as genai
+        import fitz  # PyMuPDF
+        from PIL import Image
+        import pandas as pd
+        
+        print("✓ AI dependencies available, trying advanced extraction...")
+        ai_results = extract_with_ai_safe(file_path, temp_dir, api_key)
+        if ai_results and ai_results.get('total_tables_extracted', 0) > 0:
             results.update(ai_results)
+            results['method'] = 'Advanced AI with model1.py functionality'
             print(f"✓ AI extraction successful: {results['total_tables_extracted']} tables")
             return results
+        else:
+            print("AI extraction returned no tables, trying fallback...")
+    except ImportError as e:
+        print(f"AI dependencies missing: {e}")
     except Exception as e:
         print(f"AI extraction failed: {e}")
     
     # Method 2: Try basic PDF extraction
     try:
         print("Trying basic PDF extraction...")
-        basic_results = extract_basic(file_path, temp_dir, filename)
-        results.update(basic_results)
-        print(f"✓ Basic extraction completed: {results['total_tables_extracted']} tables")
-        return results
+        basic_results = extract_basic_safe(file_path, temp_dir, filename)
+        if basic_results and basic_results.get('total_tables_extracted', 0) > 0:
+            results.update(basic_results)
+            results['method'] = 'Basic PDF extraction'
+            print(f"✓ Basic extraction successful: {results['total_tables_extracted']} tables")
+            return results
     except Exception as e:
         print(f"Basic extraction failed: {e}")
     
-    # Method 3: Create fallback file
+    # Method 3: Create minimal fallback
     try:
-        print("Creating fallback text file...")
-        txt_path = os.path.join(temp_dir, f"{filename}_info.txt")
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write(f"PDF Processing Report\n")
-            f.write(f"File: {filename}\n")
-            f.write(f"Status: Processed but no tables extracted\n")
-            f.write(f"Note: PDF may not contain extractable tables\n")
-        
-        results['csv_files'] = [txt_path]
-        results['total_tables_extracted'] = 1
-        print("✓ Fallback file created")
+        print("Creating fallback result...")
+        fallback_results = create_fallback_result(file_path, temp_dir, filename)
+        results.update(fallback_results)
+        results['method'] = 'Fallback text extraction'
+        print("✓ Fallback result created")
         return results
     except Exception as e:
         print(f"Fallback creation failed: {e}")
         return results
 
-def extract_with_ai(file_path, temp_dir, api_key):
+def extract_with_ai_safe(file_path, temp_dir, api_key):
+    """Safe AI extraction with comprehensive error handling"""
+    try:
+        # Import required modules safely
+        import google.generativeai as genai
+        import fitz
+        from PIL import Image
+        import pandas as pd
+        import io
+        import re
+        
+        print("✓ All AI dependencies imported successfully")
+        
+        # Test API key
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            print("✓ Gemini model initialized")
+        except Exception as e:
+            print(f"API key validation failed: {e}")
+            return None
+        
+        # Extract PDF title safely
+        try:
+            pdf_title = extract_pdf_title_safe(file_path)
+            print(f"📄 PDF Title: {pdf_title}")
+        except Exception as e:
+            print(f"Title extraction failed: {e}")
+            pdf_title = "Unknown_PDF"
+        
+        # Convert PDF to images safely
+        try:
+            doc = fitz.open(file_path)
+            images = []
+            
+            max_pages = min(len(doc), 3)  # Limit to 3 pages for safety
+            for page_num in range(max_pages):
+                try:
+                    page = doc.load_page(page_num)
+                    mat = fitz.Matrix(2.0, 2.0)  # Reduced from 3.0 to 2.0 for stability
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data))
+                    
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    images.append(img)
+                    print(f"✓ Converted page {page_num + 1}")
+                except Exception as e:
+                    print(f"Error converting page {page_num + 1}: {e}")
+                    continue
+            
+            doc.close()
+            
+            if not images:
+                print("No images converted successfully")
+                return None
+                
+            print(f"✓ Total images converted: {len(images)}")
+            
+        except Exception as e:
+            print(f"PDF to image conversion failed: {e}")
+            return None
+        
+        # Extract tables with AI safely
+        csv_files = []
+        total_tables = 0
+        extracted_titles = []
+        
+        for page_num, image in enumerate(images):
+            try:
+                print(f"Processing page {page_num + 1} with AI...")
+                
+                # Use simple prompt to avoid complexity
+                prompt = """Extract tables from this PDF page image. 
+
+Return JSON format:
+{
+    "has_tables": true/false,
+    "tables": [
+        {
+            "title": "Complete table title as shown",
+            "headers": ["Column 1", "Column 2", "..."],
+            "data": [
+                ["Row 1 Col 1", "Row 1 Col 2", "..."],
+                ["Row 2 Col 1", "Row 2 Col 2", "..."]
+            ]
+        }
+    ]
+}
+
+Extract ALL text exactly as shown. Preserve:
+- Complete titles with currency info like "(Rs. In Lakhs)"
+- Text starting with "-" like "- Deferred Tax Expenses / (Income)"
+- Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX
+- Negative values in parentheses: (123.45)
+- Quarter/Nine Months format in headers"""
+                
+                generation_config = {
+                    'temperature': 0.1,
+                    'top_p': 0.9,
+                    'max_output_tokens': 4096,
+                }
+                
+                response = model.generate_content([prompt, image], generation_config=generation_config)
+                response_text = response.text.strip()
+                
+                # Clean response safely
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:].strip()
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3].strip()
+                if response_text.startswith('```'):
+                    response_text = response_text[3:].strip()
+                
+                try:
+                    result = json.loads(response_text)
+                except json.JSONDecodeError as e:
+                    print(f"JSON parse error on page {page_num + 1}: {e}")
+                    continue
+                
+                if result.get("has_tables") and result.get("tables"):
+                    for i, table_data in enumerate(result["tables"]):
+                        try:
+                            title = table_data.get('title', f'Table_Page_{page_num+1}_{i+1}')
+                            headers = table_data.get('headers', [])
+                            data = table_data.get('data', [])
+                            
+                            if title and title not in extracted_titles:
+                                extracted_titles.append(title)
+                            
+                            if data:
+                                # Save table safely
+                                csv_path = save_table_safe(title, headers, data, page_num + 1, i + 1, temp_dir)
+                                if csv_path:
+                                    csv_files.append(csv_path)
+                                    total_tables += 1
+                                    print(f"✓ Saved table: {os.path.basename(csv_path)}")
+                        except Exception as e:
+                            print(f"Error processing table {i+1} on page {page_num+1}: {e}")
+                            continue
+                else:
+                    print(f"No tables found on page {page_num + 1}")
+                
+            except Exception as e:
+                print(f"Error processing page {page_num + 1}: {e}")
+                continue
+        
+        if total_tables > 0:
+            return {
+                'total_pages': len(images),
+                'total_tables_extracted': total_tables,
+                'csv_files': csv_files,
+                'extracted_titles': extracted_titles,
+                'pdf_title': pdf_title
+            }
+        else:
+            print("No tables extracted with AI")
+            return None
+        
+    except ImportError as e:
+        print(f"Import error: {e}")
+        return None
+    except Exception as e:
+        print(f"AI extraction error: {e}")
+        return None
+
+def extract_pdf_title_safe(pdf_path):
+    """Safely extract PDF title"""
+    try:
+        import fitz
+        import re
+        from pathlib import Path
+        
+        doc = fitz.open(pdf_path)
+        
+        # Try metadata first
+        try:
+            metadata = doc.metadata
+            if metadata and metadata.get('title'):
+                title = metadata['title'].strip()
+                if title and len(title) > 3:
+                    doc.close()
+                    return sanitize_filename(title)
+        except:
+            pass
+        
+        # Try first page content
+        try:
+            if len(doc) > 0:
+                first_page = doc[0]
+                text_dict = first_page.get_text("dict")
+                
+                # Look for large text at top of page
+                candidates = []
+                page_height = first_page.rect.height
+                
+                for block in text_dict.get("blocks", []):
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            bbox = line["bbox"]
+                            y_pos = bbox[1]
+                            
+                            if y_pos < page_height * 0.3:  # Top 30% of page
+                                for span in line.get("spans", []):
+                                    text = span.get("text", "").strip()
+                                    font_size = span.get("size", 0)
+                                    
+                                    if (text and len(text) > 10 and font_size >= 12):
+                                        candidates.append((text, font_size))
+                
+                if candidates:
+                    # Get largest font text
+                    candidates.sort(key=lambda x: -x[1])
+                    title = candidates[0][0]
+                    title = re.sub(r'\s+', ' ', title.strip())
+                    
+                    if len(title) > 5:
+                        doc.close()
+                        return sanitize_filename(title)
+        except:
+            pass
+        
+        doc.close()
+        
+    except Exception as e:
+        print(f"Title extraction error: {e}")
+    
+    # Fallback to filename
+    try:
+        from pathlib import Path
+        return sanitize_filename(Path(pdf_path).stem)
+    except:
+        return "Unknown_PDF"
+
+def sanitize_filename(name):
+    """Safely sanitize filename"""
+    try:
+        import re
+        
+        if not name:
+            return "Unknown_File"
+        
+        # Remove invalid characters
+        sanitized = re.sub(r'[<>:"/\\|?*]', '', str(name))
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        sanitized = sanitized.strip(' .')
+        
+        if len(sanitized) > 80:
+            sanitized = sanitized[:80].strip()
+        
+        if not sanitized:
+            sanitized = "Unknown_File"
+        
+        return sanitized
+    except:
+        return "Unknown_File"
+
+def save_table_safe(title, headers, data, page_num, table_num, temp_dir):
+    """Safely save table to CSV"""
+    try:
+        import pandas as pd
+        import re
+        
+        # Create safe filename
+        if title and title.strip():
+            safe_title = sanitize_filename(title)
+            filename = f"{safe_title}.csv"
+        else:
+            filename = f"page_{page_num}_table_{table_num}.csv"
+        
+        filepath = os.path.join(temp_dir, filename)
+        
+        # Prepare data safely
+        if not data:
+            return None
+        
+        # Fix Excel formula issues
+        def fix_cell(cell_value):
+            if isinstance(cell_value, str) and cell_value.startswith(('-', '=', '+')):
+                if any(c.isalpha() for c in cell_value):
+                    return f"'{cell_value}"  # Add quote to prevent formula interpretation
+            return cell_value
+        
+        # Apply fixes
+        fixed_data = []
+        for row in data:
+            fixed_row = [fix_cell(cell) for cell in row]
+            fixed_data.append(fixed_row)
+        
+        # Create DataFrame safely
+        try:
+            if headers and len(headers) > 0:
+                # Ensure data rows match header count
+                max_cols = len(headers)
+                adjusted_data = []
+                for row in fixed_data:
+                    if len(row) > max_cols:
+                        adjusted_row = row[:max_cols]
+                    elif len(row) < max_cols:
+                        adjusted_row = row + [''] * (max_cols - len(row))
+                    else:
+                        adjusted_row = row
+                    adjusted_data.append(adjusted_row)
+                
+                df = pd.DataFrame(adjusted_data, columns=headers)
+            else:
+                # No headers - use data as is
+                df = pd.DataFrame(fixed_data)
+        except Exception as e:
+            print(f"DataFrame creation error: {e}")
+            return None
+        
+        # Save with title
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                if title and title.strip():
+                    csvfile.write(f'"{title}"\n')
+                    csvfile.write('\n')
+                
+                df.to_csv(csvfile, index=False)
+            
+            return filepath
+        except Exception as e:
+            print(f"File save error: {e}")
+            return None
+            
+    except Exception as e:
+        print(f"Table save error: {e}")
+        return None
+
+def extract_basic_safe(file_path, temp_dir, filename):
+    """Safe basic PDF extraction"""
+    try:
+        import pandas as pd
+        
+        csv_files = []
+        
+        # Try pdfplumber
+        try:
+            import pdfplumber
+            
+            with pdfplumber.open(file_path) as pdf:
+                for page_num, page in enumerate(pdf.pages[:2]):  # Limit to 2 pages
+                    try:
+                        tables = page.extract_tables()
+                        
+                        for table_num, table in enumerate(tables):
+                            if table and len(table) > 1:
+                                try:
+                                    df = pd.DataFrame(table[1:], columns=table[0])
+                                    df = df.dropna(how='all').dropna(axis=1, how='all')
+                                    
+                                    if not df.empty:
+                                        csv_filename = f"basic_page_{page_num+1}_table_{table_num+1}.csv"
+                                        csv_path = os.path.join(temp_dir, csv_filename)
+                                        df.to_csv(csv_path, index=False)
+                                        csv_files.append(csv_path)
+                                        print(f"✓ Basic extraction: {csv_filename}")
+                                except Exception as e:
+                                    print(f"Error processing basic table: {e}")
+                                    continue
+                    except Exception as e:
+                        print(f"Error processing page {page_num+1}: {e}")
+                        continue
+            
+            if csv_files:
+                return {
+                    'total_tables_extracted': len(csv_files),
+                    'csv_files': csv_files,
+                    'extracted_titles': [f'Basic table {i+1}' for i in range(len(csv_files))]
+                }
+        
+        except ImportError:
+            print("pdfplumber not available")
+        except Exception as e:
+            print(f"pdfplumber error: {e}")
+        
+        return None
+        
+    except Exception as e:
+        print(f"Basic extraction error: {e}")
+        return None
+
+def create_fallback_result(file_path, temp_dir, filename):
+    """Create minimal fallback result"""
+    try:
+        # Create info file
+        txt_filename = f"{sanitize_filename(filename)}_info.txt"
+        txt_path = os.path.join(temp_dir, txt_filename)
+        
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            f.write(f"PDF Processing Report\n")
+            f.write(f"=" * 40 + "\n\n")
+            f.write(f"File: {filename}\n")
+            f.write(f"Status: Processed\n")
+            f.write(f"Result: No extractable tables found\n")
+            f.write(f"Note: The PDF may contain images or non-standard table formats\n")
+            f.write(f"Suggestion: Try a different PDF or check if tables are embedded as images\n")
+        
+        return {
+            'total_tables_extracted': 1,
+            'csv_files': [txt_path],
+            'extracted_titles': ['Processing report']
+        }
+        
+    except Exception as e:
+        print(f"Fallback creation error: {e}")
+        return {
+            'total_tables_extracted': 0,
+            'csv_files': [],
+            'extracted_titles': []
+        }
     """Advanced AI extraction using Gemini with model1.py functionality"""
     try:
         # Test imports
