@@ -163,7 +163,7 @@ def upload():
             return jsonify({'error': 'google-generativeai not installed'}), 500
             
         try:
-            import PyMuPDF as fitz
+            import fitz  # PyMuPDF - Fixed import
             print("✓ PyMuPDF imported")
         except ImportError as e:
             print(f"Import error: {e}")
@@ -211,27 +211,45 @@ def upload():
             total_pages = len(doc)
             print(f"✓ PDF opened: {total_pages} pages")
             
-            # Simple table extraction
+            # Simple table extraction using PyMuPDF's built-in table finder
             tables_found = 0
             csv_files = []
             
             for page_num in range(min(total_pages, 5)):  # Limit to 5 pages for safety
                 page = doc[page_num]
-                tables = page.find_tables()
                 
-                for i, table in enumerate(tables):
-                    try:
-                        df = table.to_pandas()
-                        if not df.empty:
-                            csv_filename = f"table_page{page_num+1}_{i+1}.csv"
-                            csv_path = os.path.join(temp_dir, csv_filename)
-                            df.to_csv(csv_path, index=False)
-                            csv_files.append(csv_path)
-                            tables_found += 1
-                            print(f"✓ Table {i+1} extracted from page {page_num+1}")
-                    except Exception as e:
-                        print(f"Table extraction error: {e}")
-                        continue
+                # Use PyMuPDF's find_tables method
+                try:
+                    tables = page.find_tables()
+                    print(f"  Page {page_num+1}: Found {len(tables)} tables")
+                    
+                    for i, table in enumerate(tables):
+                        try:
+                            # Extract table data
+                            table_data = table.extract()
+                            
+                            if table_data and len(table_data) > 0:
+                                # Convert to pandas DataFrame
+                                import pandas as pd
+                                df = pd.DataFrame(table_data)
+                                
+                                # Clean empty rows and columns
+                                df = df.dropna(how='all').dropna(axis=1, how='all')
+                                
+                                if not df.empty:
+                                    csv_filename = f"table_page{page_num+1}_{i+1}.csv"
+                                    csv_path = os.path.join(temp_dir, csv_filename)
+                                    df.to_csv(csv_path, index=False, header=False)
+                                    csv_files.append(csv_path)
+                                    tables_found += 1
+                                    print(f"✓ Table {i+1} extracted from page {page_num+1}: {len(df)} rows")
+                        except Exception as e:
+                            print(f"Table extraction error on page {page_num+1}, table {i+1}: {e}")
+                            continue
+                            
+                except Exception as e:
+                    print(f"Error finding tables on page {page_num+1}: {e}")
+                    continue
             
             doc.close()
             
@@ -239,7 +257,8 @@ def upload():
             results = {
                 'pdf_name': file.filename,
                 'total_pages': total_pages,
-                'pages_with_tables': len([p for p in range(total_pages) if len(doc[p].find_tables()) > 0]) if total_pages <= 5 else "Unknown",
+                'pages_with_tables': len([True for page_num in range(min(total_pages, 5)) 
+                                        if len(fitz.open(file_path)[page_num].find_tables()) > 0]),
                 'total_tables_extracted': tables_found,
                 'csv_files': csv_files,
                 'temp_dir': temp_dir
@@ -247,7 +266,7 @@ def upload():
             
             results_store[extraction_id] = results
             
-            print(f"✓ Processing complete: {tables_found} tables")
+            print(f"✓ Processing complete: {tables_found} tables extracted")
             
             return jsonify({
                 'success': True,
@@ -263,6 +282,8 @@ def upload():
             
         except Exception as e:
             print(f"Processing error: {e}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': f'PDF processing failed: {str(e)}'}), 500
         
     except Exception as e:
