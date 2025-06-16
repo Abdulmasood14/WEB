@@ -15,29 +15,43 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
         }
 
         .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
+            background: white;
             border-radius: 20px;
-            padding: 40px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
 
         .header h1 {
             color: #333;
             font-size: 2.5em;
             margin-bottom: 10px;
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #667eea, #764ba2);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -48,141 +62,105 @@
             font-size: 1.1em;
         }
 
-        .form-section {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 30px;
+        .upload-form {
             margin-bottom: 30px;
-            border: 1px solid #e9ecef;
         }
 
         .form-group {
             margin-bottom: 20px;
         }
 
-        label {
+        .form-group label {
             display: block;
             margin-bottom: 8px;
-            font-weight: 600;
             color: #333;
+            font-weight: 600;
         }
 
-        input[type="text"], input[type="password"] {
+        .form-group input {
             width: 100%;
             padding: 12px 16px;
-            border: 2px solid #e9ecef;
+            border: 2px solid #e1e5e9;
             border-radius: 10px;
             font-size: 16px;
             transition: all 0.3s ease;
         }
 
-        input[type="text"]:focus, input[type="password"]:focus {
+        .form-group input:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        .file-upload {
+        .file-input-wrapper {
             position: relative;
+            overflow: hidden;
             display: inline-block;
             width: 100%;
         }
 
-        .file-upload input[type="file"] {
+        .file-input {
             position: absolute;
-            opacity: 0;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
+            left: -9999px;
         }
 
-        .file-upload-label {
+        .file-input-label {
             display: block;
-            padding: 20px;
-            border: 3px dashed #667eea;
-            border-radius: 15px;
+            padding: 12px 16px;
+            border: 2px dashed #667eea;
+            border-radius: 10px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s ease;
             background: #f8f9ff;
         }
 
-        .file-upload-label:hover {
-            background: #f0f3ff;
+        .file-input-label:hover {
+            background: #f0f2ff;
             border-color: #5a6fd8;
         }
 
-        .file-upload-label.dragover {
-            background: #e6ebff;
-            border-color: #4f5bd5;
-            transform: scale(1.02);
+        .file-input-label.has-file {
+            border-color: #28a745;
+            background: #f0fff4;
         }
 
-        .upload-icon {
-            font-size: 3em;
-            color: #667eea;
-            margin-bottom: 10px;
-        }
-
-        .upload-text {
-            color: #333;
-            font-size: 1.1em;
-            margin-bottom: 5px;
-        }
-
-        .upload-subtext {
-            color: #666;
-            font-size: 0.9em;
-        }
-
-        .selected-file {
-            margin-top: 10px;
-            padding: 10px;
-            background: #e6f3ff;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-        }
-
-        .btn {
-            background: linear-gradient(45deg, #667eea, #764ba2);
+        .submit-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
             border: none;
-            padding: 15px 30px;
-            border-radius: 50px;
-            font-size: 1.1em;
+            border-radius: 10px;
+            font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            width: 100%;
-            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
         }
 
-        .btn:hover {
+        .submit-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
         }
 
-        .btn:disabled {
-            background: #cccccc;
+        .submit-btn:disabled {
+            opacity: 0.6;
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
         }
 
-        .loading {
+        .loading-spinner {
             display: none;
-            text-align: center;
-            margin: 30px 0;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
             animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            margin-right: 10px;
         }
 
         @keyframes spin {
@@ -190,143 +168,140 @@
             100% { transform: rotate(360deg); }
         }
 
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .alert-error {
+            background: #fff2f2;
+            color: #dc3545;
+            border: 1px solid #ffc1c1;
+        }
+
+        .alert-success {
+            background: #f0fff4;
+            color: #28a745;
+            border: 1px solid #c3e6cb;
+        }
+
         .results {
             display: none;
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 30px;
-            margin-top: 30px;
-            border: 1px solid #e9ecef;
+            background: #f8f9ff;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
         }
 
         .results h3 {
             color: #333;
+            margin-bottom: 15px;
+        }
+
+        .results-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
             margin-bottom: 20px;
-            font-size: 1.5em;
         }
 
-        .result-item {
+        .stat-card {
             background: white;
             padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 10px;
-            border-left: 4px solid #28a745;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .result-label {
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .result-value {
-            color: #666;
-        }
-
-        .csv-files {
-            margin-top: 20px;
-        }
-
-        .csv-file {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        .csv-file-name {
-            flex: 1;
-            color: #333;
-            font-weight: 500;
-        }
-
-        .download-btn {
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-left: 10px;
-        }
-
-        .download-btn:hover {
-            background: #218838;
-            transform: translateY(-1px);
-        }
-
-        .download-all-btn {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 25px;
-            font-size: 1em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            width: 100%;
-            margin-top: 20px;
-        }
-
-        .download-all-btn:hover {
-            background: #0056b3;
-            transform: translateY(-1px);
-        }
-
-        .error {
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            display: none;
-        }
-
-        .success {
-            background: #d4edda;
-            border: 1px solid #c3e6cb;
-            color: #155724;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            display: none;
-        }
-
-        .extracted-titles {
-            margin-top: 15px;
-        }
-
-        .title-item {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            padding: 10px;
             border-radius: 8px;
-            margin-bottom: 8px;
-            color: #856404;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-        .help-text {
-            background: #e3f2fd;
-            border: 1px solid #bbdefb;
-            color: #1565c0;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
             font-size: 0.9em;
         }
 
-        .help-text strong {
-            display: block;
-            margin-bottom: 5px;
+        .titles-list {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .titles-list h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .titles-list ul {
+            list-style: none;
+        }
+
+        .titles-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+            color: #555;
+        }
+
+        .features {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #eee;
+        }
+
+        .features h3 {
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .feature-card h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .results-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
     </style>
 </head>
@@ -334,276 +309,238 @@
     <div class="container">
         <div class="header">
             <h1>📊 PDF Table Extractor</h1>
-            <p>Extract tables from PDF files using Google Gemini AI</p>
+            <p>Extract tables from PDF files using AI-powered recognition</p>
         </div>
 
-        <div class="help-text">
-            <strong>📝 How to get your Google AI API Key:</strong>
-            1. Visit <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a><br>
-            2. Sign in with your Google account<br>
-            3. Click "Create API Key" and copy it<br>
-            4. Paste it in the field below
-        </div>
-
-        <form id="uploadForm" enctype="multipart/form-data">
-            <div class="form-section">
-                <div class="form-group">
-                    <label for="api_key">🔑 Google AI API Key *</label>
-                    <input type="password" id="api_key" name="api_key" placeholder="Enter your Google AI API key" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="file">📄 Select PDF File *</label>
-                    <div class="file-upload">
-                        <input type="file" id="file" name="file" accept=".pdf" required>
-                        <label for="file" class="file-upload-label" id="fileLabel">
-                            <div class="upload-icon">📁</div>
-                            <div class="upload-text">Click to select a PDF file</div>
-                            <div class="upload-subtext">or drag and drop it here</div>
-                        </label>
-                    </div>
-                    <div id="selectedFile" class="selected-file" style="display: none;"></div>
-                </div>
-
-                <button type="submit" class="btn" id="submitBtn">
-                    🚀 Extract Tables
-                </button>
+        <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="api_key">🔑 Gemini API Key:</label>
+                <input type="password" id="api_key" name="api_key" required 
+                       placeholder="Enter your Google Gemini API key">
             </div>
+
+            <div class="form-group">
+                <label for="file">📄 Select PDF File:</label>
+                <div class="file-input-wrapper">
+                    <input type="file" id="file" name="file" class="file-input" accept=".pdf" required>
+                    <label for="file" class="file-input-label" id="fileLabel">
+                        📁 Choose PDF file or drag & drop here
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">
+                <span class="loading-spinner" id="loadingSpinner"></span>
+                <span id="btnText">🚀 Extract Tables</span>
+            </button>
         </form>
 
-        <div id="loading" class="loading">
-            <div class="spinner"></div>
-            <p>Processing your PDF... This may take a few minutes.</p>
+        <div id="alertContainer"></div>
+        
+        <div id="results" class="results">
+            <h3>📈 Extraction Results</h3>
+            <div class="results-stats" id="resultsStats">
+                <!-- Stats will be populated here -->
+            </div>
+            <div class="titles-list" id="titlesList">
+                <!-- Extracted titles will be populated here -->
+            </div>
         </div>
 
-        <div id="error" class="error"></div>
-        <div id="success" class="success"></div>
-
-        <div id="results" class="results">
-            <h3>📊 Extraction Results</h3>
-            <div id="resultItems"></div>
-            <div id="csvFiles" class="csv-files"></div>
+        <div class="features">
+            <h3>✨ Features</h3>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h4>AI-Powered Recognition</h4>
+                    <p>Uses Google Gemini 2.0 Flash for accurate table detection and extraction</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h4>Smart Table Merging</h4>
+                    <p>Automatically combines tables that span multiple pages</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <h4>CSV Export</h4>
+                    <p>Exports extracted tables as CSV files with proper formatting</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h4>Batch Processing</h4>
+                    <p>Processes all pages and tables in a single operation</p>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        let currentExtractionId = null;
-
-        // File upload handling
-        const fileInput = document.getElementById('file');
-        const fileLabel = document.getElementById('fileLabel');
-        const selectedFileDiv = document.getElementById('selectedFile');
-
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                selectedFileDiv.innerHTML = `
-                    <strong>Selected:</strong> ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)
-                `;
-                selectedFileDiv.style.display = 'block';
-                fileLabel.querySelector('.upload-text').textContent = 'PDF file selected';
-                fileLabel.querySelector('.upload-subtext').textContent = 'Click to change file';
-            }
-        });
-
-        // Drag and drop handling
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            fileLabel.addEventListener(eventName, preventDefaults, false);
-        });
-
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            fileLabel.addEventListener(eventName, highlight, false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            fileLabel.addEventListener(eventName, unhighlight, false);
-        });
-
-        function highlight(e) {
-            fileLabel.classList.add('dragover');
-        }
-
-        function unhighlight(e) {
-            fileLabel.classList.remove('dragover');
-        }
-
-        fileLabel.addEventListener('drop', handleDrop, false);
-
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const files = dt.files;
-            
-            if (files.length > 0) {
-                fileInput.files = files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        }
-
-        // Form submission with better error handling
-        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('uploadForm');
+            const fileInput = document.getElementById('file');
+            const fileLabel = document.getElementById('fileLabel');
             const submitBtn = document.getElementById('submitBtn');
-            const loading = document.getElementById('loading');
-            const error = document.getElementById('error');
-            const success = document.getElementById('success');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const btnText = document.getElementById('btnText');
+            const alertContainer = document.getElementById('alertContainer');
             const results = document.getElementById('results');
-            
-            // Reset displays
-            error.style.display = 'none';
-            success.style.display = 'none';
-            results.style.display = 'none';
-            
-            // Show loading
-            submitBtn.disabled = true;
-            loading.style.display = 'block';
-            
-            try {
-                console.log('Sending request to /upload...');
+
+            // File input change handler
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    fileLabel.textContent = `📄 ${file.name}`;
+                    fileLabel.classList.add('has-file');
+                } else {
+                    fileLabel.textContent = '📁 Choose PDF file or drag & drop here';
+                    fileLabel.classList.remove('has-file');
+                }
+            });
+
+            // Form submit handler
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
                 
-                const response = await fetch('/upload', {
+                const formData = new FormData(form);
+                
+                // Show loading state
+                submitBtn.disabled = true;
+                loadingSpinner.style.display = 'inline-block';
+                btnText.textContent = 'Processing...';
+                
+                // Clear previous alerts and results
+                alertContainer.innerHTML = '';
+                results.style.display = 'none';
+
+                fetch('/upload', {
                     method: 'POST',
                     body: formData
+                })
+                .then(response => {
+                    if (response.ok && response.headers.get('content-type').includes('application/zip')) {
+                        // File download
+                        return response.blob().then(blob => {
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.style.display = 'none';
+                            a.href = url;
+                            a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'extracted_tables.zip';
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                            
+                            showAlert('Tables extracted successfully! Download started.', 'success');
+                        });
+                    } else {
+                        return response.json();
+                    }
+                })
+                .then(data => {
+                    if (data && data.error) {
+                        showAlert(data.error, 'error');
+                    } else if (data && data.success === false) {
+                        showAlert(data.error || 'No tables found in the PDF.', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('An error occurred while processing the file.', 'error');
+                })
+                .finally(() => {
+                    // Reset loading state
+                    submitBtn.disabled = false;
+                    loadingSpinner.style.display = 'none';
+                    btnText.textContent = '🚀 Extract Tables';
                 });
-                
-                console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
-                
-                // Check if response is ok
-                if (!response.ok) {
-                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
-                }
-                
-                // Get response text first
-                const responseText = await response.text();
-                console.log('Response text:', responseText);
-                
-                // Check if response is empty
-                if (!responseText || responseText.trim() === '') {
-                    throw new Error('Server returned empty response. Please check server logs.');
-                }
-                
-                // Try to parse JSON
-                let data;
-                try {
-                    data = JSON.parse(responseText);
-                } catch (parseError) {
-                    console.error('JSON parse error:', parseError);
-                    throw new Error(`Invalid server response: ${responseText.substring(0, 200)}...`);
-                }
-                
-                console.log('Parsed data:', data);
-                
-                if (data.success) {
-                    currentExtractionId = data.extraction_id;
-                    displayResults(data.results);
-                    success.innerHTML = '✅ PDF processed successfully! You can now download the extracted tables.';
-                    success.style.display = 'block';
-                } else {
-                    throw new Error(data.error || 'Unknown error occurred');
-                }
-            } catch (err) {
-                console.error('Full error:', err);
-                error.innerHTML = `❌ Error: ${err.message}`;
-                error.style.display = 'block';
-            } finally {
-                submitBtn.disabled = false;
-                loading.style.display = 'none';
-            }
-        });
+            });
 
-        function displayResults(data) {
-            const resultItems = document.getElementById('resultItems');
-            const csvFiles = document.getElementById('csvFiles');
-            const results = document.getElementById('results');
-            
-            // Display summary
-            resultItems.innerHTML = `
-                <div class="result-item">
-                    <div class="result-label">📄 PDF Name:</div>
-                    <div class="result-value">${data.pdf_name}</div>
-                </div>
-                <div class="result-item">
-                    <div class="result-label">📊 Total Pages:</div>
-                    <div class="result-value">${data.total_pages}</div>
-                </div>
-                <div class="result-item">
-                    <div class="result-label">📋 Pages with Tables:</div>
-                    <div class="result-value">${data.pages_with_tables}</div>
-                </div>
-                <div class="result-item">
-                    <div class="result-label">📈 Tables Extracted:</div>
-                    <div class="result-value">${data.total_tables_extracted}</div>
-                </div>
-                ${data.extracted_titles && data.extracted_titles.length > 0 ? `
-                <div class="result-item">
-                    <div class="result-label">📝 Extracted Titles:</div>
-                    <div class="extracted-titles">
-                        ${data.extracted_titles.map(title => `<div class="title-item">${title}</div>`).join('')}
+            function showAlert(message, type) {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert alert-${type}`;
+                alertDiv.textContent = message;
+                alertContainer.appendChild(alertDiv);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 5000);
+            }
+
+            function showResults(data) {
+                const statsContainer = document.getElementById('resultsStats');
+                const titlesContainer = document.getElementById('titlesList');
+                
+                // Populate stats
+                statsContainer.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-number">${data.total_pages}</div>
+                        <div class="stat-label">Total Pages</div>
                     </div>
-                </div>
-                ` : ''}
-            `;
-            
-            // Display CSV files
-            if (data.csv_files && data.csv_files.length > 0) {
-                csvFiles.innerHTML = `
-                    <h4>📥 Download CSV Files:</h4>
-                    ${data.csv_files.map(filename => `
-                        <div class="csv-file">
-                            <div class="csv-file-name">📄 ${filename}</div>
-                            <button class="download-btn" onclick="downloadCSV('${filename}')">Download</button>
-                        </div>
-                    `).join('')}
-                    <button class="download-all-btn" onclick="downloadAll()">📦 Download All as ZIP</button>
+                    <div class="stat-card">
+                        <div class="stat-number">${data.pages_with_tables}</div>
+                        <div class="stat-label">Pages with Tables</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${data.total_tables_extracted}</div>
+                        <div class="stat-label">Tables Extracted</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${data.csv_files_count}</div>
+                        <div class="stat-label">CSV Files</div>
+                    </div>
                 `;
-            } else {
-                csvFiles.innerHTML = '<p>No CSV files were generated.</p>';
+                
+                // Populate extracted titles
+                if (data.extracted_titles && data.extracted_titles.length > 0) {
+                    const titlesList = data.extracted_titles.map((title, index) => 
+                        `<li>${index + 1}. ${title}</li>`
+                    ).join('');
+                    
+                    titlesContainer.innerHTML = `
+                        <h4>📝 Extracted Titles:</h4>
+                        <ul>${titlesList}</ul>
+                    `;
+                } else {
+                    titlesContainer.innerHTML = '<p>No titles extracted</p>';
+                }
+                
+                results.style.display = 'block';
             }
-            
-            results.style.display = 'block';
-        }
 
-        function downloadCSV(filename) {
-            if (!currentExtractionId) {
-                alert('No extraction results available');
-                return;
-            }
-            
-            const url = `/download_csv/${currentExtractionId}/${filename}`;
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+            // Drag and drop functionality
+            let dragCounter = 0;
 
-        function downloadAll() {
-            if (!currentExtractionId) {
-                alert('No extraction results available');
-                return;
-            }
-            
-            const url = `/download/${currentExtractionId}`;
-            const link = document.createElement('a');
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+            document.addEventListener('dragenter', function(e) {
+                e.preventDefault();
+                dragCounter++;
+                fileLabel.style.backgroundColor = '#e8f0fe';
+            });
 
-        // Auto-cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (currentExtractionId) {
-                fetch('/cleanup');
-            }
+            document.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                dragCounter--;
+                if (dragCounter === 0) {
+                    fileLabel.style.backgroundColor = '';
+                }
+            });
+
+            document.addEventListener('dragover', function(e) {
+                e.preventDefault();
+            });
+
+            document.addEventListener('drop', function(e) {
+                e.preventDefault();
+                dragCounter = 0;
+                fileLabel.style.backgroundColor = '';
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type === 'application/pdf') {
+                    fileInput.files = files;
+                    fileLabel.textContent = `📄 ${files[0].name}`;
+                    fileLabel.classList.add('has-file');
+                }
+            });
         });
     </script>
 </body>
