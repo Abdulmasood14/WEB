@@ -1,458 +1,510 @@
-from flask import Flask, request, jsonify, send_file
 import os
-import tempfile
-import uuid
-import zipfile
-import re
-import json
 import base64
-import io
-from datetime import datetime
+import pandas as pd
+import google.generativeai as genai
 from pathlib import Path
+import json
+import re
 from typing import List, Dict, Optional
+import io
+import fitz  # PyMuPDF
+import platform
+import subprocess
+import sys
 
-app = Flask(__name__)
+# Optional imports for different PDF processing methods
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    print("pdf2image not available. Using PyMuPDF instead.")
 
-# Simple in-memory storage
-results_store = {}
-
-@app.route('/')
-def home():
-    """Advanced HTML page with Gemini AI integration"""
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Advanced PDF Table Extractor</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 900px; margin: 50px auto; padding: 20px; }
-            .form-group { margin: 20px 0; }
-            input, button { width: 100%; padding: 12px; margin: 5px 0; border: 1px solid #ddd; border-radius: 5px; }
-            button { background: #007bff; color: white; border: none; cursor: pointer; font-size: 16px; }
-            button:hover { background: #0056b3; }
-            .hidden { display: none; }
-            .alert { padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-            .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-            .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-            .demo { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; margin: 20px 0; border-radius: 10px; }
-            .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 20px 0; }
-            .feature { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #007bff; }
-            .result-item { background: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 4px solid #28a745; }
-            .progress { background: #e9ecef; border-radius: 5px; overflow: hidden; margin: 10px 0; }
-            .progress-bar { background: #007bff; height: 8px; transition: width 0.3s ease; }
-            small { color: #6c757d; }
-        </style>
-    </head>
-    <body>
-        <h1>🚀 Advanced PDF Table Extractor</h1>
-        
-        <div class="demo">
-            <h3>💎 Powered by Google Gemini 2.0 Flash</h3>
-            <p>Advanced AI-powered table extraction with intelligent title detection, quarter/nine months formatting, and precise financial data handling.</p>
-        </div>
-        
-        <div class="features">
-            <div class="feature">
-                <h4>🧠 AI-Powered</h4>
-                <p>Uses Google Gemini 2.0 Flash for intelligent table recognition and data extraction</p>
-            </div>
-            <div class="feature">
-                <h4>📊 Financial Focus</h4>
-                <p>Specialized for financial statements with Quarter/Nine Months period handling</p>
-            </div>
-            <div class="feature">
-                <h4>🎯 Precise Extraction</h4>
-                <p>Maintains exact formatting, currency symbols, and complex table structures</p>
-            </div>
-            <div class="feature">
-                <h4>📁 Smart Organization</h4>
-                <p>Creates organized directories based on extracted PDF titles</p>
-            </div>
-        </div>
-        
-        <form id="uploadForm">
-            <div class="form-group">
-                <label><strong>Google AI API Key:</strong></label>
-                <input type="password" id="apiKey" placeholder="Enter your Google AI API key" required>
-                <small>Get your free API key from <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></small>
-            </div>
-            
-            <div class="form-group">
-                <label><strong>PDF File:</strong></label>
-                <input type="file" id="pdfFile" accept=".pdf" required>
-                <small>Upload PDF files with tables (financial statements work best)</small>
-            </div>
-            
-            <button type="submit" id="submitBtn">🚀 Extract Tables with AI</button>
-        </form>
-        
-        <div id="loading" class="hidden">
-            <div class="alert alert-warning">
-                <strong>⏳ Processing PDF with AI...</strong>
-                <div class="progress">
-                    <div class="progress-bar" id="progressBar"></div>
-                </div>
-                <p id="loadingText">Initializing extraction...</p>
-            </div>
-        </div>
-        
-        <div id="message"></div>
-        <div id="results"></div>
-        
-        <script>
-            let progressInterval;
-            
-            function updateProgress() {
-                const progressBar = document.getElementById('progressBar');
-                const loadingText = document.getElementById('loadingText');
-                const messages = [
-                    'Converting PDF to images...',
-                    'Analyzing page structure...',
-                    'Detecting tables with AI...',
-                    'Extracting financial data...',
-                    'Processing Quarter/Nine Months formats...',
-                    'Generating CSV files...',
-                    'Finalizing results...'
-                ];
-                
-                let progress = 0;
-                let messageIndex = 0;
-                
-                progressInterval = setInterval(() => {
-                    progress += Math.random() * 15;
-                    if (progress > 90) progress = 90;
-                    
-                    progressBar.style.width = progress + '%';
-                    
-                    if (Math.random() > 0.7 && messageIndex < messages.length - 1) {
-                        messageIndex++;
-                        loadingText.textContent = messages[messageIndex];
-                    }
-                }, 800);
-            }
-            
-            document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                const apiKey = document.getElementById('apiKey').value;
-                const pdfFile = document.getElementById('pdfFile').files[0];
-                const loading = document.getElementById('loading');
-                const message = document.getElementById('message');
-                const results = document.getElementById('results');
-                const submitBtn = document.getElementById('submitBtn');
-                
-                // Validation
-                if (!apiKey.trim()) {
-                    message.innerHTML = '<div class="alert alert-error">❌ Please enter your Google AI API key</div>';
-                    return;
-                }
-                
-                if (!pdfFile) {
-                    message.innerHTML = '<div class="alert alert-error">❌ Please select a PDF file</div>';
-                    return;
-                }
-                
-                // Reset UI
-                message.innerHTML = '';
-                results.innerHTML = '';
-                loading.classList.remove('hidden');
-                submitBtn.disabled = true;
-                submitBtn.textContent = '🔄 Processing...';
-                
-                updateProgress();
-                
-                try {
-                    // Create form data
-                    const formData = new FormData();
-                    formData.append('api_key', apiKey);
-                    formData.append('file', pdfFile);
-                    
-                    // Send request
-                    const response = await fetch('/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const text = await response.text();
-                    
-                    if (!text.trim()) {
-                        throw new Error('Server returned empty response');
-                    }
-                    
-                    const data = JSON.parse(text);
-                    
-                    // Complete progress
-                    clearInterval(progressInterval);
-                    document.getElementById('progressBar').style.width = '100%';
-                    document.getElementById('loadingText').textContent = 'Complete!';
-                    
-                    setTimeout(() => {
-                        loading.classList.add('hidden');
-                        
-                        if (data.success) {
-                            message.innerHTML = '<div class="alert alert-success"><strong>✅ Success!</strong> PDF processed with AI extraction</div>';
-                            
-                            let resultsHTML = `
-                                <h3>📊 Extraction Results</h3>
-                                <div class="result-item"><strong>📄 File:</strong> ${data.results.pdf_name}</div>
-                                <div class="result-item"><strong>📑 Pages:</strong> ${data.results.total_pages}</div>
-                                <div class="result-item"><strong>🎯 Method:</strong> ${data.results.method || 'AI-Powered Gemini Extraction'}</div>
-                                <div class="result-item"><strong>📊 Tables Found:</strong> ${data.results.total_tables_extracted}</div>
-                            `;
-                            
-                            if (data.results.extracted_titles && data.results.extracted_titles.length > 0) {
-                                resultsHTML += '<div class="result-item"><strong>📝 Extracted Titles:</strong><ul>';
-                                data.results.extracted_titles.forEach(title => {
-                                    resultsHTML += `<li>${title}</li>`;
-                                });
-                                resultsHTML += '</ul></div>';
-                            }
-                            
-                            if (data.results.csv_files && data.results.csv_files.length > 0) {
-                                resultsHTML += '<h4>📁 Download Files:</h4>';
-                                data.results.csv_files.forEach(file => {
-                                    resultsHTML += `<div class="result-item">
-                                        <a href="/download_csv/${data.extraction_id}/${file}" style="color: #007bff; text-decoration: none;">
-                                            📄 ${file}
-                                        </a>
-                                    </div>`;
-                                });
-                                
-                                if (data.results.csv_files.length > 1) {
-                                    resultsHTML += `<div class="result-item">
-                                        <a href="/download/${data.extraction_id}" style="color: #28a745; text-decoration: none; font-weight: bold;">
-                                            📦 Download All Files (ZIP)
-                                        </a>
-                                    </div>`;
-                                }
-                            }
-                            
-                            results.innerHTML = resultsHTML;
-                        } else {
-                            message.innerHTML = `<div class="alert alert-error"><strong>❌ Error:</strong> ${data.error}</div>`;
-                        }
-                    }, 1000);
-                    
-                } catch (err) {
-                    clearInterval(progressInterval);
-                    console.error('Error:', err);
-                    loading.classList.add('hidden');
-                    message.innerHTML = `<div class="alert alert-error"><strong>❌ Error:</strong> ${err.message}</div>`;
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = '🚀 Extract Tables with AI';
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """
-
-@app.route('/health')
-def health():
-    return jsonify({'status': 'ok', 'message': 'Advanced PDF Table Extractor running'})
-
-@app.route('/upload', methods=['POST'])
-def upload():
-    """Handle file upload with advanced AI extraction"""
-    try:
-        print("=== ADVANCED UPLOAD STARTED ===")
-        
-        # Check request
-        if not request.files or 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-            
-        file = request.files['file']
-        api_key = request.form.get('api_key', '').strip()
-        
-        print(f"File: {file.filename}")
-        print(f"API key length: {len(api_key)}")
-        
-        # Validate inputs
-        if not file or not file.filename:
-            return jsonify({'error': 'No file selected'}), 400
-            
-        if not api_key:
-            return jsonify({'error': 'Google AI API key is required for advanced extraction'}), 400
-            
-        if not file.filename.lower().endswith('.pdf'):
-            return jsonify({'error': 'Must be PDF file'}), 400
-        
-        # Test required imports
-        try:
-            import google.generativeai as genai
-            print("✓ google.generativeai imported")
-        except ImportError as e:
-            print(f"Import error: {e}")
-            return jsonify({'error': 'google-generativeai not installed'}), 500
-        
-        # Save file
-        extraction_id = str(uuid.uuid4())
-        temp_dir = tempfile.mkdtemp()
-        file_path = os.path.join(temp_dir, f"upload_{extraction_id}.pdf")
-        
-        try:
-            file.save(file_path)
-            file_size = os.path.getsize(file_path)
-            print(f"✓ File saved: {file_size} bytes")
-        except Exception as e:
-            return jsonify({'error': f'File save failed: {str(e)}'}), 500
-        
-        # Initialize AI extractor
-        try:
-            extractor = PDFTableExtractor(api_key, temp_dir)
-            print("✓ AI extractor initialized")
-        except Exception as e:
-            return jsonify({'error': f'AI initialization failed: {str(e)}'}), 500
-        
-        # Extract tables using AI
-        extraction_result = extractor.process_pdf(file_path)
-        
-        # Store results
-        results_store[extraction_id] = extraction_result
-        
-        return jsonify({
-            'success': True,
-            'extraction_id': extraction_id,
-            'results': {
-                'pdf_name': file.filename,
-                'total_pages': extraction_result['total_pages'],
-                'method': 'AI-Powered Gemini 2.0 Flash',
-                'total_tables_extracted': extraction_result['total_tables_extracted'],
-                'csv_files': [os.path.basename(f) for f in extraction_result['csv_files']],
-                'extracted_titles': extraction_result.get('extracted_titles', [])
-            }
-        })
-        
-    except Exception as e:
-        print(f"General error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+try:
+    import PyPDF2
+    PYPDF2_AVAILABLE = True
+except ImportError:
+    PYPDF2_AVAILABLE = False
 
 class PDFTableExtractor:
-    """AI-powered PDF table extractor using Gemini 2.0 Flash"""
-    
-    def __init__(self, api_key: str, temp_dir: str):
-        self.api_key = api_key
-        self.temp_dir = temp_dir
+    def __init__(self, api_key: str):
+        """
+        Initialize the PDF Table Extractor with Gemini 2.0 Flash
         
-        # Initialize Gemini
-        import google.generativeai as genai
+        Args:
+            api_key (str): Your Google AI API key
+        """
+        self.api_key = api_key
         genai.configure(api_key=api_key)
+        
+        # Initialize Gemini 2.0 Flash model
         self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
         
-        print("✓ Gemini 2.0 Flash model initialized")
+        # Base output directory - will be set per PDF
+        self.base_output_dir = Path("extracted_tables")
+        self.base_output_dir.mkdir(exist_ok=True)
+        self.output_dir = None  # Will be set when processing PDF
+        
+        # Check available PDF processing methods
+        self.check_dependencies()
     
-    def pdf_to_images(self, pdf_path: str) -> List:
-        """Convert PDF pages to images for AI processing"""
-        try:
-            # Try PyPDF2 + PIL approach first (most compatible)
-            import PyPDF2
-            from PIL import Image, ImageDraw
+    def extract_pdf_title(self, pdf_path: str) -> str:
+        """
+        Extract title from PDF metadata or first page content
+        
+        Args:
+            pdf_path (str): Path to the PDF file
             
-            images = []
-            with open(pdf_path, 'rb') as pdf_file:
-                pdf_reader = PyPDF2.PdfReader(pdf_file)
+        Returns:
+            str: Extracted title or fallback name
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            
+            # First try to get title from metadata
+            metadata = doc.metadata
+            if metadata and metadata.get('title'):
+                title = metadata['title'].strip()
+                if title and len(title) > 3:  # Valid title
+                    doc.close()
+                    return self.sanitize_directory_name(title)
+            
+            # If no metadata title, try to extract from first page
+            if len(doc) > 0:
+                first_page = doc[0]
                 
-                for page_num in range(min(len(pdf_reader.pages), 10)):  # Limit to 10 pages
-                    page = pdf_reader.pages[page_num]
-                    text = page.extract_text()
-                    
-                    # Create a simple image representation of the text
-                    # This is a fallback when other PDF->image methods aren't available
-                    img_width, img_height = 800, 1000
-                    img = Image.new('RGB', (img_width, img_height), 'white')
-                    draw = ImageDraw.Draw(img)
-                    
-                    # Draw text on image (simplified representation)
-                    lines = text.split('\n')[:50]  # First 50 lines
-                    y_pos = 20
-                    
-                    for line in lines:
-                        if y_pos > img_height - 50:
-                            break
-                        try:
-                            draw.text((20, y_pos), line[:100], fill='black')  # First 100 chars
-                            y_pos += 20
-                        except:
-                            continue
-                    
-                    images.append(img)
-                    print(f"✓ Created image representation for page {page_num + 1}")
+                # Get text blocks (title is usually in larger font at top)
+                blocks = first_page.get_text("dict")
                 
-                return images
+                # Look for the largest text in the upper portion of the page
+                title_candidates = []
+                page_height = first_page.rect.height
                 
+                for block in blocks.get("blocks", []):
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            bbox = line["bbox"]
+                            y_pos = bbox[1]  # y coordinate
+                            
+                            # Only consider text in upper 30% of page
+                            if y_pos < page_height * 0.3:
+                                for span in line.get("spans", []):
+                                    text = span.get("text", "").strip()
+                                    font_size = span.get("size", 0)
+                                    
+                                    # Look for meaningful text with decent font size
+                                    if (text and len(text) > 10 and 
+                                        font_size >= 12 and 
+                                        not text.lower().startswith(('page', 'confidential', 'draft'))):
+                                        title_candidates.append((text, font_size, y_pos))
+                
+                # Sort by font size (descending) and y position (ascending - top first)
+                title_candidates.sort(key=lambda x: (-x[1], x[2]))
+                
+                if title_candidates:
+                    # Take the largest font text from the top
+                    potential_title = title_candidates[0][0]
+                    
+                    # Clean up the title
+                    potential_title = re.sub(r'\s+', ' ', potential_title.strip())
+                    
+                    # Remove common header patterns
+                    potential_title = re.sub(r'^(COMPANY|CORPORATION|LIMITED|LTD|INC)[\s:]+', '', potential_title, flags=re.IGNORECASE)
+                    
+                    if len(potential_title) > 5:  # Valid title length
+                        doc.close()
+                        return self.sanitize_directory_name(potential_title)
+            
+            doc.close()
+            
         except Exception as e:
-            print(f"Error in PDF to images conversion: {e}")
+            print(f"Error extracting PDF title: {e}")
+        
+        # Fallback to filename
+        pdf_name = Path(pdf_path).stem
+        return self.sanitize_directory_name(pdf_name)
+    
+    def sanitize_directory_name(self, name: str) -> str:
+        """
+        Sanitize a string to be used as a directory name
+        
+        Args:
+            name (str): Original name
+            
+        Returns:
+            str: Sanitized directory name
+        """
+        # Remove or replace invalid characters for directory names
+        sanitized = re.sub(r'[<>:"/\\|?*]', '', name)
+        
+        # Replace multiple spaces with single space
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        
+        # Remove leading/trailing spaces and dots
+        sanitized = sanitized.strip(' .')
+        
+        # Limit length to avoid filesystem issues
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100].strip()
+        
+        # If empty after sanitization, use fallback
+        if not sanitized:
+            sanitized = "Untitled_PDF"
+        
+        return sanitized
+    
+    def setup_output_directory(self, pdf_path: str):
+        """
+        Setup output directory based on PDF title
+        
+        Args:
+            pdf_path (str): Path to the PDF file
+        """
+        # Extract title from PDF
+        pdf_title = self.extract_pdf_title(pdf_path)
+        
+        # Create directory name with timestamp to avoid conflicts
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dir_name = f"{pdf_title}_{timestamp}"
+        
+        # Create the output directory
+        self.output_dir = self.base_output_dir / dir_name
+        self.output_dir.mkdir(exist_ok=True)
+        
+        print(f"📁 Created output directory: {self.output_dir}")
+        print(f"📄 PDF Title detected: {pdf_title}")
+    
+    def check_dependencies(self):
+        """Check and report available PDF processing methods"""
+        print("Checking PDF processing dependencies...")
+        
+        methods = []
+        if PDF2IMAGE_AVAILABLE:
+            if self.check_poppler():
+                methods.append("pdf2image + poppler")
+                print("✓ pdf2image with poppler available")
+            else:
+                print("✗ pdf2image available but poppler not found")
+        
+        try:
+            import fitz
+            methods.append("PyMuPDF")
+            print("✓ PyMuPDF available")
+        except ImportError:
+            print("✗ PyMuPDF not available")
+        
+        if not methods:
+            print("⚠️  No PDF processing methods available. Installing PyMuPDF...")
+            self.install_pymupdf()
+        
+        print(f"Available methods: {', '.join(methods)}")
+    
+    def check_poppler(self) -> bool:
+        """Check if poppler is installed and accessible"""
+        try:
+            if platform.system() == "Windows":
+                subprocess.run(["pdftoppm", "-h"], capture_output=True, check=True)
+            else:
+                subprocess.run(["which", "pdftoppm"], capture_output=True, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+    
+    def install_pymupdf(self):
+        """Install PyMuPDF if not available"""
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "PyMuPDF"])
+            print("✓ PyMuPDF installed successfully")
+            global fitz
+            import fitz
+        except Exception as e:
+            print(f"Failed to install PyMuPDF: {e}")
+            raise Exception("No PDF processing library available. Please install either PyMuPDF or pdf2image with poppler.")
+    
+    def pdf_to_images_pymupdf(self, pdf_path: str) -> List[any]:
+        """
+        Convert PDF pages to images using PyMuPDF with enhanced quality
+        
+        Args:
+            pdf_path (str): Path to the PDF file
+            
+        Returns:
+            List of PIL Image objects
+        """
+        try:
+            from PIL import Image
+            doc = fitz.open(pdf_path)
+            images = []
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                # Convert to image with higher DPI for better text recognition
+                mat = fitz.Matrix(3.0, 3.0)  # 3x zoom = 216 DPI for better accuracy
+                pix = page.get_pixmap(matrix=mat, alpha=False)  # No alpha for cleaner text
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Convert to RGB if needed for better processing
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                images.append(img)
+            
+            doc.close()
+            return images
+            
+        except Exception as e:
+            print(f"Error converting PDF to images with PyMuPDF: {e}")
             return []
     
+    def pdf_to_images_pdf2image(self, pdf_path: str) -> List[any]:
+        """
+        Convert PDF pages to images using pdf2image
+        
+        Args:
+            pdf_path (str): Path to the PDF file
+            
+        Returns:
+            List of PIL Image objects
+        """
+        try:
+            if not PDF2IMAGE_AVAILABLE:
+                raise Exception("pdf2image not available")
+            
+            images = convert_from_path(pdf_path, dpi=200)
+            return images
+        except Exception as e:
+            print(f"Error converting PDF to images with pdf2image: {e}")
+            return []
+    
+    def pdf_to_images(self, pdf_path: str) -> List[any]:
+        """
+        Convert PDF pages to images using available method
+        
+        Args:
+            pdf_path (str): Path to the PDF file
+            
+        Returns:
+            List of PIL Image objects
+        """
+        # Try PyMuPDF first (more reliable)
+        try:
+            import fitz
+            images = self.pdf_to_images_pymupdf(pdf_path)
+            if images:
+                print(f"✓ Converted {len(images)} pages using PyMuPDF")
+                return images
+        except ImportError:
+            pass
+        
+        # Fallback to pdf2image if available and poppler is installed
+        if PDF2IMAGE_AVAILABLE and self.check_poppler():
+            images = self.pdf_to_images_pdf2image(pdf_path)
+            if images:
+                print(f"✓ Converted {len(images)} pages using pdf2image")
+                return images
+        
+        print("❌ Failed to convert PDF to images. Please install PyMuPDF or pdf2image with poppler.")
+        return []
+    
+    def encode_image(self, image) -> str:
+        """
+        Encode PIL image to base64 string
+        
+        Args:
+            image: PIL Image object
+            
+        Returns:
+            Base64 encoded string
+        """
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        buffer.seek(0)
+        return base64.b64encode(buffer.read()).decode('utf-8')
+    
     def create_table_extraction_prompt(self) -> str:
-        """Enhanced prompt for financial table extraction"""
-        return """
-You are an expert PDF table extraction specialist. Analyze this image with extreme precision to extract EXACT data as it appears.
+        """
+        Create the prompt for table extraction with enhanced title detection and Quarter/Nine Months format
+        
+        Returns:
+            Formatted prompt string
+        """
+        prompt = """
+        You are an expert PDF table extraction specialist. Analyze this image with extreme precision to extract EXACT data as it appears.
 
-CRITICAL INSTRUCTIONS FOR ACCURACY:
+        CRITICAL INSTRUCTIONS FOR ACCURACY:
 
-STEP 1 - COMPLETE TITLE EXTRACTION:
-- Look for the COMPLETE title including ALL subtitle information
-- Extract titles like: "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024"
-- ALWAYS include currency/unit information if present: "(Rs. In Lakhs)", "(Rs. In Crores)", etc.
-- Look for text that appears prominently above the table
-- Include any subtitle information that describes the table content
+        STEP 1 - COMPLETE TITLE EXTRACTION:
+        - Look for the COMPLETE title including ALL subtitle information
+        - Extract titles like: "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024"
+        - ALWAYS include currency/unit information if present: "(Rs. In Lakhs)", "(Rs. In Crores)", etc.
+        - Look for text that appears prominently above the table
+        - Include any subtitle information that describes the table content
+        - Example complete titles:
+          * "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024 (Rs. In Lakhs)"
+          * "AUDITED STANDALONE FINANCIAL RESULTS FOR THE QUARTER & YEAR ENDED MARCH 31, 2025 (Rs. In Lakhs)"
 
-STEP 2 - CRITICAL TEXT RECOGNITION FOR SPECIFIC PATTERNS:
-- MOST IMPORTANT: Look for text patterns that start with a dash/hyphen (-)
-- Specifically look for: "- Deferred Tax Expenses / (Income)"
-- This text appears as an indented sub-item under Tax Expense
-- Extract this EXACTLY as: "- Deferred Tax Expenses / (Income)"
-- DO NOT convert this to "#NAME?" or any error message
-- This is DESCRIPTIVE TEXT, not a formula or calculation
+        STEP 2 - CRITICAL TEXT RECOGNITION FOR SPECIFIC PATTERNS:
+        - MOST IMPORTANT: Look for text patterns that start with a dash/hyphen (-)
+        - Specifically look for: "- Deferred Tax Expenses / (Income)"
+        - This text appears as an indented sub-item under Tax Expense
+        - Extract this EXACTLY as: "- Deferred Tax Expenses / (Income)"
+        - DO NOT convert this to "#NAME?" or any error message
+        - DO NOT interpret the dash as a negative sign for numbers
+        - DO NOT remove the dash or modify the text in any way
+        - This is DESCRIPTIVE TEXT, not a formula or calculation
 
-STEP 3 - QUARTER AND NINE MONTHS COLUMN HANDLING:
-- Look for column headers that contain "Quarter Ended" and "Nine Months Ended"
-- Extract these headers exactly as they appear with dates
-- Preserve the exact format: "Quarter Ended [Date]" and "Nine Months Ended [Date]"
-- Look for additional qualifiers like "Reviewed" or "Unaudited" if present
+        STEP 3 - QUARTER AND NINE MONTHS COLUMN HANDLING:
+        - Look for column headers that contain "Quarter Ended" and "Nine Months Ended"
+        - Extract these headers exactly as they appear with dates
+        - Examples of expected headers:
+          * "Quarter Ended December 31, 2024"
+          * "Nine Months Ended December 31, 2024"
+          * "Quarter Ended December 31, 2023"
+          * "Nine Months Ended December 31, 2023"
+        - Preserve the exact format: "Quarter Ended [Date]" and "Nine Months Ended [Date]"
+        - Look for additional qualifiers like "Reviewed" or "Unaudited" if present
 
-STEP 4 - FINANCIAL DATA HANDLING:
-- Extract ALL numerical values exactly as shown
-- Preserve negative values in parentheses: (135.30), (121.26), (196.58), (552.77)
-- Keep dash symbols as "-" for zero/nil values
-- Maintain exact decimal precision: 13,542.40, 18,790.26, etc.
-- Include commas in large numbers exactly as shown
+        STEP 4 - GENERAL TEXT RECOGNITION:
+        - Read ALL other text EXACTLY as written in the PDF
+        - Pay special attention to negative values in parentheses: (123.45)
+        - Look for dash symbols "-" which indicate zero or nil values (different from descriptive text)
+        - Preserve all decimal points, commas, and formatting exactly
+        - Look carefully at each character to avoid misreading
 
-OUTPUT FORMAT:
-{
-    "has_tables": true/false,
-    "tables": [
+        STEP 5 - SERIAL NUMBER (Sr. No.) HANDLING:
+        - Look for "Sr. No." or "S. No." in the header
+        - Serial numbers in this table are: I, II, III, IV, V, VI, VII, VIII, IX (Roman numerals WITHOUT parentheses)
+        - Extract EXACTLY as shown:
+          * I for first row
+          * II for second row  
+          * III for third row
+          * IV for fourth row
+          * V for fifth row
+          * VI for sixth row
+          * VII for seventh row
+          * VIII for eighth row
+          * IX for ninth row
+        - Do NOT add parentheses if they're not there
+        - Do NOT convert to Arabic numbers
+
+        STEP 6 - FINANCIAL DATA HANDLING:
+        - Extract ALL numerical values exactly as shown
+        - Preserve negative values in parentheses: (135.30), (121.26), (196.58), (552.77)
+        - Keep dash symbols as "-" for zero/nil values (when used as data, not as text prefix)
+        - Maintain exact decimal precision: 13,542.40, 18,790.26, etc.
+        - Include commas in large numbers exactly as shown
+        - Do NOT interpret or modify any values
+
+        STEP 7 - COMPLEX TABLE STRUCTURE:
+        - Handle multi-level row descriptions correctly
+        - For items with sub-items (like "a) Cost of Materials", "b) Purchase"), extract the complete text
+        - For indented items like "- Deferred Tax Expenses / (Income)", extract EXACTLY as shown
+        - Maintain proper hierarchy and indentation information
+        - Extract merged cells and sub-categories properly
+        - Remember: Items starting with "- " are descriptive text, not calculations
+
+        STEP 8 - COLUMN HEADERS WITH QUARTER/NINE MONTHS:
+        - Extract ALL column headers exactly as shown with the specific format
+        - Include headers like:
+          * "Quarter Ended December 31, 2024 Reviewed"
+          * "Nine Months Ended December 31, 2024 Reviewed"
+          * "Quarter Ended December 31, 2023 Reviewed"
+          * "Nine Months Ended December 31, 2023 Reviewed"
+        - Preserve all header text including qualifiers like "Reviewed", "Unaudited", "Audited"
+        - Maintain the exact format: "Quarter Ended [Date]" and "Nine Months Ended [Date]"
+
+        STEP 9 - PRECISE DATA EXTRACTION:
+        - Extract ALL visible text from each cell EXACTLY as shown
+        - Maintain precise column alignment
+        - Include empty cells as empty strings
+        - Preserve the exact row and column structure
+        - Handle merged cells appropriately
+        - Don't modify or interpret the data - extract it exactly
+        - NEVER convert valid descriptive text to error messages
+
+        OUTPUT FORMAT - CRITICAL EXAMPLE FOR QUARTER/NINE MONTHS:
         {
-            "title": "Complete table title with currency info",
-            "headers": ["Column headers exactly as shown"],
-            "data": [
-                ["Row data exactly as extracted"],
-                ["Including negative values in parentheses"],
-                ["And descriptive text with dashes"]
+            "has_tables": true/false,
+            "tables": [
+                {
+                    "title": "UNAUDITED CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER & NINE MONTHS ENDED DECEMBER 31, 2024 (Rs. In Lakhs)",
+                    "table_number": null,
+                    "headers": ["Sr. No.", "Particulars", "Quarter Ended December 31, 2024 Reviewed", "Nine Months Ended December 31, 2024 Reviewed", "Quarter Ended December 31, 2023 Reviewed", "Nine Months Ended December 31, 2023 Reviewed"],
+                    "data": [
+                        ["I", "Revenue from Operations", "2,369.75", "27,490.52", "2,148.92", "24,117.03"],
+                        ["II", "Other Income", "929.74", "1,779.25", "", ""],
+                        ["III", "Total Revenue (I+II)", "27,490.52", "63,117.03", "", ""],
+                        ["", "Expenses", "", "", "", ""],
+                        ["a)", "Cost of Materials Consumed", "15,151.00", "31,781.99", "", ""],
+                        ["b)", "Purchase of Traded Goods", "1,721.37", "5,110.47", "", ""],
+                        ["c)", "Changes in Inventories of Finished Goods, Work-in-Progress and Stock-in", "829.82", "3,443.16", "", ""],
+                        ["IV", "", "", "", "", ""],
+                        ["d)", "Employee Benefits Expense", "1,936.50", "3,307.21", "", ""],
+                        ["e)", "Manufacturing and Other Expenses", "3,051.79", "7,683.58", "", ""],
+                        ["f)", "Finance Cost", "253.80", "554.75", "", ""],
+                        ["g)", "Depreciation & Amortisation Expense", "254.70", "665.34", "", ""],
+                        ["", "Total Expenses (a to g)", "22,777.28", "52,547.00", "", ""],
+                        ["V", "Profit / (Loss) before Exceptional Items and Tax (III-IV)", "4,823.24", "10,570.03", "", ""],
+                        ["VI", "Exceptional Items", "-", "-", "", ""],
+                        ["VII", "Profit / (Loss) before Tax (V-VI)", "4,823.24", "10,570.03", "", ""],
+                        ["VIII", "Tax Expense - Current Tax", "1,109.75", "2,360.00", "", ""],
+                        ["", "- Deferred Tax Expenses / (Income)", "(0.52)", "(211.11)", "", ""],
+                        ["IX", "Profit / (Loss) for the period (VII-VIII)", "3,632.51", "8,549.21", "", ""]
+                    ]
+                }
             ]
         }
-    ]
-}
 
-Remember: Extract everything EXACTLY as written. Text starting with "- " is descriptive text, not formulas.
-"""
+        CRITICAL ACCURACY REQUIREMENTS:
+        1. Include complete title with currency information: "(Rs. In Lakhs)"
+        2. Extract Sr. No. as Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX
+        3. Preserve negative values in parentheses: (135.30), (121.26)
+        4. Keep dash symbols as "-" for nil values in data cells
+        5. Extract "- Deferred Tax Expenses / (Income)" EXACTLY as shown - this is descriptive text, not an error
+        6. Maintain exact financial formatting with commas
+        7. Extract all sub-item descriptions completely
+        8. Use "Quarter Ended [Date]" and "Nine Months Ended [Date]" format for column headers
+        9. Handle complex table structure with merged cells
+
+        MOST IMPORTANT - AVOID THESE SPECIFIC MISTAKES:
+        - Converting "- Deferred Tax Expenses / (Income)" to "#NAME?" or any error message
+        - Treating "- Deferred Tax Expenses / (Income)" as a formula or calculation
+        - Missing the complete descriptive text that starts with "-"
+        - Converting descriptive text starting with "-" to numerical values
+        - Not using the proper "Quarter Ended" and "Nine Months Ended" format in headers
+
+        SPECIFIC TEXT PATTERNS TO PRESERVE EXACTLY:
+        - "- Deferred Tax Expenses / (Income)" (this is descriptive text, not a calculation)
+        - "- Current Tax" (if present)
+        - Any other text that starts with "- " (these are descriptions, not formulas)
+        - "Quarter Ended [Date]" format for quarterly columns
+        - "Nine Months Ended [Date]" format for nine-month columns
+
+        Remember: Text that starts with "- " followed by words is DESCRIPTIVE TEXT that should be extracted exactly as written, never converted to error messages. Column headers should use the exact "Quarter Ended" and "Nine Months Ended" format.
+        """
+        return prompt
     
     def extract_tables_from_image(self, image) -> Dict:
-        """Extract tables from image using Gemini AI"""
+        """
+        Extract tables from a single image using Gemini with enhanced error handling
+        
+        Args:
+            image: PIL Image object
+            
+        Returns:
+            Dictionary containing extraction results
+        """
         try:
             prompt = self.create_table_extraction_prompt()
             
-            # Generate content using Gemini
+            # Generate content using Gemini 2.0 Flash with enhanced parameters
             generation_config = {
-                'temperature': 0.1,
+                'temperature': 0.1,  # Lower temperature for more consistent output
                 'top_p': 0.8,
                 'top_k': 40,
-                'max_output_tokens': 8192,
+                'max_output_tokens': 8192,  # Increased for larger tables
             }
             
             response = self.model.generate_content(
@@ -460,202 +512,652 @@ Remember: Extract everything EXACTLY as written. Text starting with "- " is desc
                 generation_config=generation_config
             )
             
-            # Parse JSON response
+            # Parse the JSON response with better error handling
             response_text = response.text.strip()
             
-            # Clean up response
+            # Multiple cleaning attempts for robust parsing
             if response_text.startswith('```json'):
                 response_text = response_text[7:-3].strip()
             elif response_text.startswith('```'):
                 response_text = response_text[3:-3].strip()
+            elif response_text.startswith('json'):
+                response_text = response_text[4:].strip()
             
+            # Remove any trailing markdown
             if response_text.endswith('```'):
                 response_text = response_text[:-3].strip()
             
             try:
                 result = json.loads(response_text)
                 
-                # Validate structure
+                # Validate the result structure
                 if not isinstance(result, dict):
+                    print(f"Invalid response format: not a dictionary")
                     return {"has_tables": False, "tables": []}
                 
                 if "has_tables" not in result:
+                    print(f"Missing 'has_tables' key in response")
                     return {"has_tables": False, "tables": []}
+                
+                if result.get("has_tables") and "tables" not in result:
+                    print(f"Missing 'tables' key when has_tables is true")
+                    return {"has_tables": False, "tables": []}
+                
+                # Validate each table structure
+                if result.get("has_tables") and result.get("tables"):
+                    valid_tables = []
+                    for i, table in enumerate(result["tables"]):
+                        if not isinstance(table, dict):
+                            print(f"Table {i+1}: Invalid table format")
+                            continue
+                        
+                        # Ensure required keys exist
+                        if "headers" not in table:
+                            table["headers"] = []
+                        if "data" not in table:
+                            table["data"] = []
+                        if "title" not in table:
+                            table["title"] = None
+                        
+                        valid_tables.append(table)
+                    
+                    result["tables"] = valid_tables
                 
                 return result
                 
             except json.JSONDecodeError as e:
                 print(f"JSON parsing error: {e}")
-                return {"has_tables": False, "tables": []}
+                print(f"Raw response (first 500 chars): {response_text[:500]}")
+                
+                # Attempt to fix common JSON issues
+                try:
+                    # Try to fix incomplete JSON
+                    if not response_text.endswith('}') and not response_text.endswith(']'):
+                        response_text += '}'
+                    
+                    # Try parsing again
+                    result = json.loads(response_text)
+                    return result
+                except:
+                    print(f"Failed to recover from JSON error")
+                    return {"has_tables": False, "tables": []}
                 
         except Exception as e:
             print(f"Error extracting tables from image: {e}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
             return {"has_tables": False, "tables": []}
     
-    def save_table_to_csv(self, table_data: Dict, filename: str) -> str:
-        """Save table data to CSV file"""
+    def save_table_to_csv(self, table_data: Dict, page_num: int, table_num: int, pdf_name: str) -> str:
+        """
+        Save extracted table data to CSV file with title
+        
+        Args:
+            table_data (Dict): Table data dictionary
+            page_num (int): Page number
+            table_num (int): Table number on the page
+            pdf_name (str): Original PDF filename
+            
+        Returns:
+            Path to saved CSV file
+        """
         try:
-            # Create safe filename
-            title = table_data.get('title', 'Table')
-            safe_filename = re.sub(r'[<>:"/\\|?*]', '', title)
-            safe_filename = safe_filename.replace('(Rs. In Lakhs)', '').strip()
-            safe_filename = re.sub(r'\s+', '_', safe_filename)
+            # Create filename based on the actual extracted title
+            title = table_data.get('title', '')
+            if title:
+                # Clean title for filename - remove special characters but keep structure
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '', title)  # Remove only Windows invalid chars
+                safe_filename = safe_filename.replace('(Rs. In Lakhs)', '').strip()  # Remove currency part
+                safe_filename = re.sub(r'\s+', ' ', safe_filename)  # Normalize spaces
+                
+                # Use the cleaned title as filename
+                filename = f"{safe_filename}.csv"
+            else:
+                # Fallback filename
+                filename = f"{pdf_name}_page{page_num}_table{table_num}_Table.csv"
             
-            if not safe_filename:
-                safe_filename = filename
+            filepath = self.output_dir / filename
             
-            csv_path = os.path.join(self.temp_dir, f"{safe_filename}.csv")
-            
+            # Get headers and data
             headers = table_data.get('headers', [])
             data = table_data.get('data', [])
             
             if not data:
+                print(f"No data found in table: {table_data.get('title', 'Unknown')}")
                 return None
             
-            # Fix Excel formula issues
-            def fix_excel_issues(cell_value):
+            # Fix data to prevent Excel #NAME? errors
+            def fix_excel_formula_issues(cell_value):
+                """Fix cell values that might be interpreted as formulas by Excel"""
                 if isinstance(cell_value, str):
+                    # If text starts with dash and contains letters, add single quote to prevent formula interpretation
                     if cell_value.startswith('-') and any(c.isalpha() for c in cell_value):
                         return f"'{cell_value}"
+                    # If text starts with = or +, add single quote
                     elif cell_value.startswith(('=', '+')):
                         return f"'{cell_value}"
                 return cell_value
             
-            # Apply fixes
+            # Apply fix to all data
             fixed_data = []
             for row in data:
-                fixed_row = [fix_excel_issues(cell) for cell in row]
+                fixed_row = [fix_excel_formula_issues(cell) for cell in row]
                 fixed_data.append(fixed_row)
             
-            # Write CSV
-            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                # Add title
-                if table_data.get('title'):
-                    csvfile.write(f'"{table_data["title"]}"\n\n')
+            # Handle column mismatch between headers and data
+            if headers and fixed_data:
+                # Find the maximum number of columns in the data
+                max_data_cols = max(len(row) for row in fixed_data) if fixed_data else 0
                 
-                # Write headers
-                if headers:
-                    csvfile.write(','.join(f'"{h}"' for h in headers) + '\n')
+                # Adjust headers to match data columns
+                if len(headers) > max_data_cols:
+                    # Too many headers - truncate headers
+                    headers = headers[:max_data_cols]
+                    print(f"  Adjusted headers: reduced from {len(table_data.get('headers', []))} to {len(headers)} columns")
+                elif len(headers) < max_data_cols:
+                    # Too few headers - add generic column names
+                    for i in range(len(headers), max_data_cols):
+                        headers.append(f"Column_{i+1}")
+                    print(f"  Adjusted headers: expanded from {len(table_data.get('headers', []))} to {len(headers)} columns")
                 
-                # Write data
+                # Ensure all data rows have the same number of columns as headers
+                adjusted_data = []
                 for row in fixed_data:
-                    csvfile.write(','.join(f'"{cell}"' for cell in row) + '\n')
+                    if len(row) > len(headers):
+                        # Too many columns in row - truncate
+                        adjusted_row = row[:len(headers)]
+                    elif len(row) < len(headers):
+                        # Too few columns in row - pad with empty strings
+                        adjusted_row = row + [''] * (len(headers) - len(row))
+                    else:
+                        adjusted_row = row
+                    adjusted_data.append(adjusted_row)
+                
+                # Create DataFrame with adjusted data
+                df = pd.DataFrame(adjusted_data, columns=headers)
+                
+            elif fixed_data:
+                # No headers provided - use data as is with generic column names
+                max_cols = max(len(row) for row in fixed_data)
+                
+                # Ensure all rows have the same number of columns
+                adjusted_data = []
+                for row in fixed_data:
+                    if len(row) < max_cols:
+                        adjusted_row = row + [''] * (max_cols - len(row))
+                    else:
+                        adjusted_row = row[:max_cols]
+                    adjusted_data.append(adjusted_row)
+                
+                df = pd.DataFrame(adjusted_data)
+                print(f"  No headers provided - created table with {len(df.columns)} columns")
+            else:
+                print(f"No valid data found in table: {table_data.get('title', 'Unknown')}")
+                return None
             
-            print(f"✓ Saved table: {csv_path}")
-            return csv_path
+            # Save to CSV with title at the top
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                # Add title as first row if available
+                title = table_data.get('title')
+                if title:
+                    csvfile.write(f'"{title}"\n')
+                    csvfile.write('\n')  # Empty line after title
+                    print(f"  Added title: {title}")
+                
+                # Write the DataFrame to CSV
+                df.to_csv(csvfile, index=False)
+            
+            print(f"✓ Saved table: {filepath}")
+            print(f"  Final table size: {len(df)} rows × {len(df.columns)} columns")
+            print(f"  Fixed Excel formula interpretation issues")
+            
+            return str(filepath)
             
         except Exception as e:
-            print(f"Error saving table: {e}")
+            print(f"Error saving table to CSV: {e}")
+            print(f"  Headers count: {len(table_data.get('headers', []))}")
+            print(f"  Data rows: {len(table_data.get('data', []))}")
+            if table_data.get('data'):
+                print(f"  Max columns in data: {max(len(row) for row in table_data.get('data', []))}")
             return None
     
     def process_pdf(self, pdf_path: str) -> Dict:
-        """Process PDF with AI extraction"""
-        try:
-            print(f"Processing PDF: {pdf_path}")
+        """
+        Process entire PDF and extract all tables
+        
+        Args:
+            pdf_path (str): Path to PDF file
             
-            # Convert to images
-            images = self.pdf_to_images(pdf_path)
-            if not images:
-                return {
-                    "total_pages": 0,
-                    "total_tables_extracted": 0,
-                    "csv_files": [],
-                    "extracted_titles": []
-                }
-            
-            results = {
-                "total_pages": len(images),
+        Returns:
+            Dictionary with processing results
+        """
+        pdf_path = Path(pdf_path)
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        
+        # Setup output directory based on PDF title
+        self.setup_output_directory(str(pdf_path))
+        
+        pdf_name = pdf_path.stem
+        print(f"Processing PDF: {pdf_name}")
+        
+        # Convert PDF to images
+        images = self.pdf_to_images(str(pdf_path))
+        if not images:
+            return {
+                "error": "Failed to convert PDF to images",
+                "pdf_name": pdf_name,
+                "total_pages": 0,
+                "pages_with_tables": 0,
                 "total_tables_extracted": 0,
                 "csv_files": [],
-                "extracted_titles": []
+                "page_results": []
             }
+        
+        results = {
+            "pdf_name": pdf_name,
+            "output_directory": str(self.output_dir),
+            "total_pages": len(images),
+            "pages_with_tables": 0,
+            "total_tables_extracted": 0,
+            "csv_files": [],
+            "page_results": [],
+            "extracted_titles": []  # Track extracted titles
+        }
+        
+        # Dictionary to store tables by title for combining
+        tables_by_title = {}
+        
+        # Process each page
+        for page_num, image in enumerate(images, 1):
+            print(f"\nProcessing page {page_num}/{len(images)}...")
             
-            # Process each page
-            for page_num, image in enumerate(images, 1):
-                print(f"Processing page {page_num}/{len(images)} with AI...")
+            try:
+                # Extract tables from current page
+                extraction_result = self.extract_tables_from_image(image)
                 
-                try:
-                    extraction_result = self.extract_tables_from_image(image)
+                page_result = {
+                    "page_number": page_num,
+                    "has_tables": extraction_result.get("has_tables", False),
+                    "tables_count": len(extraction_result.get("tables", [])),
+                    "tables": []
+                }
+                
+                if extraction_result.get("has_tables", False):
+                    results["pages_with_tables"] += 1
+                    tables = extraction_result.get("tables", [])
                     
-                    if extraction_result.get("has_tables", False):
-                        tables = extraction_result.get("tables", [])
+                    for table_num, table_data in enumerate(tables, 1):
+                        title = table_data.get('title', 'Untitled Table')
+                        print(f"  Found table: {title}")
                         
-                        for table_num, table_data in enumerate(tables, 1):
-                            # Track titles
-                            if table_data.get('title'):
-                                results["extracted_titles"].append(table_data['title'])
+                        # Track extracted titles
+                        if table_data.get('title'):
+                            results["extracted_titles"].append(table_data.get('title'))
+                        
+                        # Enhanced title normalization for better continuation detection
+                        normalized_title = self.normalize_title_for_grouping(title, page_num)
+                        
+                        # Group tables by normalized title
+                        if normalized_title not in tables_by_title:
+                            tables_by_title[normalized_title] = {
+                                "title": title,
+                                "headers": table_data.get('headers', []),
+                                "data": table_data.get('data', []),
+                                "pages": [page_num],
+                                "table_numbers": [table_num],
+                                "original_titles": [title]
+                            }
+                            print(f"    Created new table group: {normalized_title}")
+                        else:
+                            # Combine data from continuation pages
+                            existing_table = tables_by_title[normalized_title]
                             
-                            # Save table
-                            csv_path = self.save_table_to_csv(
-                                table_data, 
-                                f"page_{page_num}_table_{table_num}"
-                            )
-                            
-                            if csv_path:
-                                results["csv_files"].append(csv_path)
-                                results["total_tables_extracted"] += 1
-                                print(f"✓ Extracted table from page {page_num}")
-                    
-                except Exception as e:
-                    print(f"Error processing page {page_num}: {e}")
-                    continue
+                            # Check if headers are similar (for continuation detection)
+                            if self.are_headers_compatible(existing_table["headers"], table_data.get('headers', [])):
+                                existing_table["data"].extend(table_data.get('data', []))
+                                existing_table["pages"].append(page_num)
+                                existing_table["table_numbers"].append(table_num)
+                                existing_table["original_titles"].append(title)
+                                print(f"    Added continuation data to existing table: {normalized_title}")
+                                print(f"    Combined data from pages: {existing_table['pages']}")
+                            else:
+                                # Different table structure, create new entry
+                                alt_normalized_title = f"{normalized_title}_v{len([k for k in tables_by_title.keys() if k.startswith(normalized_title)])+1}"
+                                tables_by_title[alt_normalized_title] = {
+                                    "title": title,
+                                    "headers": table_data.get('headers', []),
+                                    "data": table_data.get('data', []),
+                                    "pages": [page_num],
+                                    "table_numbers": [table_num],
+                                    "original_titles": [title]
+                                }
+                                print(f"    Created variant table group: {alt_normalized_title}")
+                        
+                        page_result["tables"].append({
+                            "title": table_data.get("title"),
+                            "table_number": table_data.get("table_number"),
+                            "normalized_title": normalized_title,
+                            "rows": len(table_data.get("data", [])),
+                            "columns": len(table_data.get("headers", []))
+                        })
+                else:
+                    print(f"  No tables found on page {page_num}")
+                
+                results["page_results"].append(page_result)
+                
+            except Exception as e:
+                print(f"  Error processing page {page_num}: {e}")
+                page_result = {
+                    "page_number": page_num,
+                    "has_tables": False,
+                    "tables_count": 0,
+                    "tables": [],
+                    "error": str(e)
+                }
+                results["page_results"].append(page_result)
+        
+        # Now save the combined tables
+        print(f"\nCombining and saving tables...")
+        for normalized_title, combined_table in tables_by_title.items():
+            print(f"\nSaving combined table: {normalized_title}")
+            print(f"  Pages: {combined_table['pages']}")
+            print(f"  Total rows: {len(combined_table['data'])}")
+            print(f"  Original titles: {combined_table['original_titles']}")
             
-            return results
+            # Save the combined table
+            csv_path = self.save_combined_table_to_csv(combined_table, pdf_name)
+            
+            if csv_path:
+                results["csv_files"].append(csv_path)
+                results["total_tables_extracted"] += 1
+        
+        return results
+    
+    def normalize_title_for_grouping(self, title: str, page_num: int) -> str:
+        """
+        Normalize title for better grouping of continuation tables
+        
+        Args:
+            title (str): Original title
+            page_num (int): Page number
+            
+        Returns:
+            str: Normalized title for grouping
+        """
+        if not title or title.strip() == '':
+            return f"Table_Page_{page_num}"
+        
+        # Remove extra spaces and normalize
+        normalized = re.sub(r'\s+', ' ', title.strip())
+        
+        # Remove common continuation indicators
+        continuation_patterns = [
+            r'\s*\(continued\)',
+            r'\s*\(contd\)',
+            r'\s*\(cont\)',
+            r'\s*continued',
+            r'\s*contd',
+            r'\s*\-\s*continued',
+            r'\s*\-\s*contd',
+            r'page\s*\d+',
+            r'sheet\s*\d+'
+        ]
+        
+        for pattern in continuation_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # Normalize company name variations and Quarter/Nine Months patterns
+        company_patterns = [
+            (r'HDFC\s+Life\s+Insurance\s+Company\s+Limited?', 'HDFC Life Insurance Company Limited'),
+            (r'LLOYDS\s+ENGINEERING\s+WORKS\s+LIMITED', 'LLOYDS ENGINEERING WORKS LIMITED'),
+            (r'Statement\s+of\s+Standalone\s+Audited\s+Results', 'Statement of Standalone Audited Results'),
+            (r'UNAUDITED\s+CONSOLIDATED\s+FINANCIAL\s+RESULTS', 'UNAUDITED CONSOLIDATED FINANCIAL RESULTS'),
+            (r'for\s+the\s+Quarter\s+and\s+Year\s+ended', 'for the Quarter and Year ended'),
+            (r'for\s+the\s+Quarter\s+&\s+Nine\s+Months\s+ended', 'for the Quarter & Nine Months ended'),
+            (r'for\s+the\s+Quarter\s+&\s+Year\s+ended', 'for the Quarter & Year ended'),
+            (r'March\s+31,?\s*2025', 'March 31, 2025'),
+            (r'December\s+31,?\s*2024', 'December 31, 2024'),
+            (r'₹\s*in\s*Lakhs?', '₹ in Lakhs'),
+            (r'Rs\.?\s*in\s*Lakhs?', 'Rs. in Lakhs')
+        ]
+        
+        for pattern, replacement in company_patterns:
+            normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+        
+        # Handle similar financial statement titles with Quarter/Nine Months format
+        if 'financial results' in normalized.lower() or 'audited results' in normalized.lower():
+            # Group similar financial statements together
+            if 'quarter' in normalized.lower() and 'nine months' in normalized.lower():
+                # For Quarter & Nine Months format
+                if 'lloyds' in normalized.lower() and 'consolidated' in normalized.lower():
+                    normalized = "LLOYDS ENGINEERING WORKS LIMITED UNAUDITED CONSOLIDATED FINANCIAL RESULTS for the Quarter & Nine Months ended December 31, 2024"
+            elif 'hdfc' in normalized.lower() and 'standalone' in normalized.lower():
+                normalized = "HDFC Life Insurance Company Limited Statement of Standalone Audited Results for the Quarter and Year ended March 31, 2025"
+        
+        return normalized.strip()
+    
+    def are_headers_compatible(self, headers1: List, headers2: List) -> bool:
+        """
+        Check if two header sets are compatible for table continuation
+        
+        Args:
+            headers1 (List): First set of headers
+            headers2 (List): Second set of headers
+            
+        Returns:
+            bool: True if headers are compatible
+        """
+        if not headers1 or not headers2:
+            return True  # Allow if one has no headers
+        
+        # Normalize headers for comparison
+        norm_headers1 = [re.sub(r'\s+', ' ', str(h).strip().lower()) for h in headers1]
+        norm_headers2 = [re.sub(r'\s+', ' ', str(h).strip().lower()) for h in headers2]
+        
+        # Check if headers are identical or very similar
+        if norm_headers1 == norm_headers2:
+            return True
+        
+        # Check if headers have significant overlap (at least 70%)
+        if len(norm_headers1) > 0 and len(norm_headers2) > 0:
+            common_headers = set(norm_headers1) & set(norm_headers2)
+            overlap_ratio = len(common_headers) / max(len(norm_headers1), len(norm_headers2))
+            
+            if overlap_ratio >= 0.7:  # 70% similarity
+                return True
+        
+        # Check if one set is a subset of the other (for partial headers)
+        if set(norm_headers1).issubset(set(norm_headers2)) or set(norm_headers2).issubset(set(norm_headers1)):
+            return True
+        
+        # Check for common financial statement header patterns including Quarter/Nine Months
+        financial_keywords = ['particulars', 'sr. no', 'march', 'december', 'audited', 'reviewed', 'quarter ended', 'nine months ended']
+        headers1_has_financial = any(keyword in ' '.join(norm_headers1) for keyword in financial_keywords)
+        headers2_has_financial = any(keyword in ' '.join(norm_headers2) for keyword in financial_keywords)
+        
+        if headers1_has_financial and headers2_has_financial:
+            return True
+        
+        return False
+    
+    def save_combined_table_to_csv(self, combined_table: Dict, pdf_name: str) -> str:
+        """
+        Save combined table data to CSV file
+        
+        Args:
+            combined_table (Dict): Combined table data dictionary
+            pdf_name (str): Original PDF filename
+            
+        Returns:
+            Path to saved CSV file
+        """
+        try:
+            # Create filename based on the actual extracted title
+            title = combined_table.get('title', '')
+            if title:
+                # Clean title for filename - remove special characters but keep structure
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '', title)  # Remove only Windows invalid chars
+                safe_filename = safe_filename.replace('(Rs. In Lakhs)', '').strip()  # Remove currency part
+                safe_filename = re.sub(r'\s+', ' ', safe_filename)  # Normalize spaces
+                
+                # Use the cleaned title as filename
+                filename = f"{safe_filename}.csv"
+            else:
+                # Fallback filename
+                filename = f"{pdf_name}_Combined_Table.csv"
+            
+            filepath = self.output_dir / filename
+            
+            # Get headers and data
+            headers = combined_table.get('headers', [])
+            data = combined_table.get('data', [])
+            
+            if not data:
+                print(f"No data found in combined table: {title}")
+                return None
+            
+            # Fix data to prevent Excel #NAME? errors
+            def fix_excel_formula_issues(cell_value):
+                """Fix cell values that might be interpreted as formulas by Excel"""
+                if isinstance(cell_value, str):
+                    # If text starts with dash and contains letters, add single quote to prevent formula interpretation
+                    if cell_value.startswith('-') and any(c.isalpha() for c in cell_value):
+                        return f"'{cell_value}"
+                    # If text starts with = or +, add single quote
+                    elif cell_value.startswith(('=', '+')):
+                        return f"'{cell_value}"
+                return cell_value
+            
+            # Apply fix to all data
+            fixed_data = []
+            for row in data:
+                fixed_row = [fix_excel_formula_issues(cell) for cell in row]
+                fixed_data.append(fixed_row)
+            
+            # Handle column mismatch between headers and data
+            if headers and fixed_data:
+                # Find the maximum number of columns in the data
+                max_data_cols = max(len(row) for row in fixed_data) if fixed_data else 0
+                
+                # Adjust headers to match data columns
+                if len(headers) > max_data_cols:
+                    # Too many headers - truncate headers
+                    headers = headers[:max_data_cols]
+                    print(f"  Adjusted headers: reduced from original to {len(headers)} columns")
+                elif len(headers) < max_data_cols:
+                    # Too few headers - add generic column names
+                    for i in range(len(headers), max_data_cols):
+                        headers.append(f"Column_{i+1}")
+                    print(f"  Adjusted headers: expanded to {len(headers)} columns")
+                
+                # Ensure all data rows have the same number of columns as headers
+                adjusted_data = []
+                for row in fixed_data:
+                    if len(row) > len(headers):
+                        # Too many columns in row - truncate
+                        adjusted_row = row[:len(headers)]
+                    elif len(row) < len(headers):
+                        # Too few columns in row - pad with empty strings
+                        adjusted_row = row + [''] * (len(headers) - len(row))
+                    else:
+                        adjusted_row = row
+                    adjusted_data.append(adjusted_row)
+                
+                # Create DataFrame with adjusted data
+                df = pd.DataFrame(adjusted_data, columns=headers)
+                
+            elif fixed_data:
+                # No headers provided - use data as is with generic column names
+                max_cols = max(len(row) for row in fixed_data)
+                
+                # Ensure all rows have the same number of columns
+                adjusted_data = []
+                for row in fixed_data:
+                    if len(row) < max_cols:
+                        adjusted_row = row + [''] * (max_cols - len(row))
+                    else:
+                        adjusted_row = row[:max_cols]
+                    adjusted_data.append(adjusted_row)
+                
+                df = pd.DataFrame(adjusted_data)
+                print(f"  No headers provided - created table with {len(df.columns)} columns")
+            else:
+                print(f"No valid data found in combined table: {title}")
+                return None
+            
+            # Save to CSV with title at the top
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                # Add title as first row if available
+                title = combined_table.get('title')
+                if title:
+                    csvfile.write(f'"{title}"\n')
+                    csvfile.write('\n')  # Empty line after title
+                    print(f"  Added title: {title}")
+                
+                # Add note about combined pages
+                pages = combined_table.get('pages', [])
+                if len(pages) > 1:
+                    csvfile.write(f'"Combined from pages: {", ".join(map(str, pages))}"\n')
+                    csvfile.write('\n')  # Empty line after note
+                    print(f"  Added page info: Combined from pages {pages}")
+                
+                # Write the DataFrame to CSV
+                df.to_csv(csvfile, index=False)
+            
+            print(f"✓ Saved combined table: {filepath}")
+            print(f"  Final combined table size: {len(df)} rows × {len(df.columns)} columns")
+            print(f"  Fixed Excel formula interpretation issues")
+            
+            return str(filepath)
             
         except Exception as e:
-            print(f"Error in PDF processing: {e}")
-            return {
-                "total_pages": 0,
-                "total_tables_extracted": 0,
-                "csv_files": [],
-                "extracted_titles": []
-            }
-
-@app.route('/download/<extraction_id>')
-def download_zip(extraction_id):
-    """Download all files as ZIP"""
-    try:
-        if extraction_id not in results_store:
-            return jsonify({'error': 'Results not found'}), 404
+            print(f"Error saving combined table to CSV: {e}")
+            return None
+    
+    def generate_summary_report(self, results: Dict) -> str:
+        """
+        Generate a summary report of extraction results
         
-        results = results_store[extraction_id]
+        Args:
+            results (Dict): Processing results
+            
+        Returns:
+            Path to summary report file
+        """
+        report_path = self.output_dir / f"{results['pdf_name']}_extraction_summary.txt"
         
-        if not results['csv_files']:
-            return jsonify({'error': 'No files to download'}), 404
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(f"PDF Table Extraction Summary\n")
+            f.write(f"=" * 50 + "\n\n")
+            f.write(f"PDF File: {results['pdf_name']}\n")
+            f.write(f"Output Directory: {results['output_directory']}\n")
+            f.write(f"Total Pages: {results['total_pages']}\n")
+            f.write(f"Pages with Tables: {results['pages_with_tables']}\n")
+            f.write(f"Total Tables Extracted: {results['total_tables_extracted']}\n\n")
+            
+            # Show extracted titles
+            if results.get('extracted_titles'):
+                f.write("Extracted Titles from PDF:\n")
+                f.write("-" * 30 + "\n")
+                for i, title in enumerate(results['extracted_titles'], 1):
+                    f.write(f"{i}. {title}\n")
+                f.write("\n")
+            
+            f.write("Extracted CSV Files:\n")
+            f.write("-" * 30 + "\n")
+            for csv_file in results['csv_files']:
+                f.write(f"• {csv_file}\n")
+            
+            f.write(f"\nDetailed Page Results:\n")
+            f.write("-" * 30 + "\n")
+            for page_result in results['page_results']:
+                f.write(f"Page {page_result['page_number']}: ")
+                if page_result['has_tables']:
+                    f.write(f"{page_result['tables_count']} table(s) found\n")
+                    for table in page_result['tables']:
+                        f.write(f"  - {table['title']} ({table['rows']} rows, {table['columns']} cols)\n")
+                else:
+                    f.write("No tables\n")
         
-        zip_path = os.path.join(os.path.dirname(results['csv_files'][0]), 'extracted_tables.zip')
-        
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file_path in results['csv_files']:
-                if os.path.exists(file_path):
-                    zipf.write(file_path, os.path.basename(file_path))
-        
-        return send_file(zip_path, as_attachment=True, download_name='extracted_tables.zip')
-        
-    except Exception as e:
-        return jsonify({'error': f'Download error: {str(e)}'}), 500
-
-@app.route('/download_csv/<extraction_id>/<filename>')
-def download_csv(extraction_id, filename):
-    """Download single CSV file"""
-    try:
-        if extraction_id not in results_store:
-            return jsonify({'error': 'Results not found'}), 404
-        
-        results = results_store[extraction_id]
-        
-        for file_path in results['csv_files']:
-            if os.path.basename(file_path) == filename:
-                if os.path.exists(file_path):
-                    return send_file(file_path, as_attachment=True, download_name=filename)
-        
-        return jsonify({'error': 'File not found'}), 404
-        
-    except Exception as e:
-        return jsonify({'error': f'Download error: {str(e)}'}), 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Starting Advanced PDF Table Extractor on port {port}")
-    print(f"🧠 Powered by Google Gemini 2.0 Flash AI")
-    app.run(debug=False, host='0.0.0.0', port=port)
+        return str(report_path)
