@@ -163,11 +163,11 @@ def upload():
             return jsonify({'error': 'google-generativeai not installed'}), 500
             
         try:
-            import fitz  # PyMuPDF - Fixed import
-            print("✓ PyMuPDF imported")
+            import pdfplumber
+            print("✓ pdfplumber imported")
         except ImportError as e:
             print(f"Import error: {e}")
-            return jsonify({'error': 'PyMuPDF not installed'}), 500
+            return jsonify({'error': 'pdfplumber not installed'}), 500
             
         try:
             import pandas as pd
@@ -206,59 +206,74 @@ def upload():
         # Process PDF (simplified)
         print("Processing PDF...")
         try:
-            # Open PDF
-            doc = fitz.open(file_path)
-            total_pages = len(doc)
-            print(f"✓ PDF opened: {total_pages} pages")
+            import pdfplumber
+            import pandas as pd
             
-            # Simple table extraction using PyMuPDF's built-in table finder
-            tables_found = 0
-            csv_files = []
-            
-            for page_num in range(min(total_pages, 5)):  # Limit to 5 pages for safety
-                page = doc[page_num]
+            # Open PDF with pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                print(f"✓ PDF opened: {total_pages} pages")
                 
-                # Use PyMuPDF's find_tables method
-                try:
-                    tables = page.find_tables()
-                    print(f"  Page {page_num+1}: Found {len(tables)} tables")
+                # Simple table extraction using pdfplumber
+                tables_found = 0
+                csv_files = []
+                
+                for page_num in range(min(total_pages, 5)):  # Limit to 5 pages for safety
+                    page = pdf.pages[page_num]
+                    print(f"  Processing page {page_num+1}")
                     
-                    for i, table in enumerate(tables):
-                        try:
-                            # Extract table data
-                            table_data = table.extract()
-                            
-                            if table_data and len(table_data) > 0:
-                                # Convert to pandas DataFrame
-                                import pandas as pd
-                                df = pd.DataFrame(table_data)
+                    # Extract tables from current page
+                    try:
+                        tables = page.extract_tables()
+                        print(f"  Page {page_num+1}: Found {len(tables)} tables")
+                        
+                        for i, table in enumerate(tables):
+                            try:
+                                if table and len(table) > 0:
+                                    # Convert table to pandas DataFrame
+                                    df = pd.DataFrame(table)
+                                    
+                                    # Clean empty rows and columns
+                                    df = df.dropna(how='all').dropna(axis=1, how='all')
+                                    
+                                    if not df.empty and len(df) > 1:  # At least 2 rows (header + data)
+                                        csv_filename = f"table_page{page_num+1}_{i+1}.csv"
+                                        csv_path = os.path.join(temp_dir, csv_filename)
+                                        
+                                        # Use first row as header if it looks like headers
+                                        try:
+                                            # Check if first row contains text (likely headers)
+                                            first_row = df.iloc[0].astype(str)
+                                            if any(not str(cell).replace('.', '').replace(',', '').isdigit() 
+                                                  for cell in first_row if pd.notna(cell) and str(cell).strip()):
+                                                # First row has text, use as headers
+                                                df.columns = first_row
+                                                df = df.iloc[1:].reset_index(drop=True)
+                                                df.to_csv(csv_path, index=False)
+                                            else:
+                                                # No clear headers, save with generic column names
+                                                df.to_csv(csv_path, index=False, header=False)
+                                        except:
+                                            # Fallback: save without headers
+                                            df.to_csv(csv_path, index=False, header=False)
+                                        
+                                        csv_files.append(csv_path)
+                                        tables_found += 1
+                                        print(f"✓ Table {i+1} extracted from page {page_num+1}: {len(df)} rows × {len(df.columns)} columns")
+                                        
+                            except Exception as e:
+                                print(f"Table processing error on page {page_num+1}, table {i+1}: {e}")
+                                continue
                                 
-                                # Clean empty rows and columns
-                                df = df.dropna(how='all').dropna(axis=1, how='all')
-                                
-                                if not df.empty:
-                                    csv_filename = f"table_page{page_num+1}_{i+1}.csv"
-                                    csv_path = os.path.join(temp_dir, csv_filename)
-                                    df.to_csv(csv_path, index=False, header=False)
-                                    csv_files.append(csv_path)
-                                    tables_found += 1
-                                    print(f"✓ Table {i+1} extracted from page {page_num+1}: {len(df)} rows")
-                        except Exception as e:
-                            print(f"Table extraction error on page {page_num+1}, table {i+1}: {e}")
-                            continue
-                            
-                except Exception as e:
-                    print(f"Error finding tables on page {page_num+1}: {e}")
-                    continue
-            
-            doc.close()
+                    except Exception as e:
+                        print(f"Error extracting tables from page {page_num+1}: {e}")
+                        continue
             
             # Store results
             results = {
                 'pdf_name': file.filename,
                 'total_pages': total_pages,
-                'pages_with_tables': len([True for page_num in range(min(total_pages, 5)) 
-                                        if len(fitz.open(file_path)[page_num].find_tables()) > 0]),
+                'pages_with_tables': len([i for i in range(min(total_pages, 5)) if csv_files]),
                 'total_tables_extracted': tables_found,
                 'csv_files': csv_files,
                 'temp_dir': temp_dir
